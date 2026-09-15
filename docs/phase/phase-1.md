@@ -1,6 +1,6 @@
 # Phase 1 - Flutter Client Foundation / Public Capture Contracts
 
-status=planned
+status=complete
 planned_at=2026-09-15
 consumer=KnowledgeHubProject/nict-editing-studio-app Phase 1
 
@@ -19,11 +19,19 @@ The project setup baseline is retained in
 
 | ID | Stage | Outcome | Status |
 | --- | --- | --- | --- |
-| TFC-00 | Project initial setup | Reusable Flutter package scaffold builds/analyzes/tests, exposes a public library entry point, and establishes consumer import syntax without adding consumer-domain dependencies. | planned |
-| TFC-01 | Foundation bootstrap | Public/internal package boundaries are shaped on top of the verified package scaffold. | planned |
-| TFC-02 | Capture model | CaptureSession, CaptureItem, item type, lifecycle, metadata, and provenance contracts are fixed. | planned |
-| TFC-03 | Capture Profile | External applications can declare item types, validation, workflow/presentation hints without core modification. | planned |
-| TFC-06 | Repository boundary | The public UI/application-service boundary uses local/remote abstractions rather than direct HTTP coupling. | planned |
+| TFC-00 | Project initial setup | Reusable Flutter package scaffold builds/analyzes/tests, exposes a public library entry point, and establishes consumer import syntax without adding consumer-domain dependencies. | accepted |
+| TFC-01 | Foundation bootstrap | Public/internal package boundaries are shaped on top of the verified package scaffold. | accepted |
+| TFC-02 | Capture model | CaptureSession, CaptureItem, item type, lifecycle, metadata, and provenance contracts are fixed. | accepted |
+| TFC-03 | Capture Profile | External applications can declare item types, validation, workflow/presentation hints without core modification. | accepted |
+| TFC-06 | Repository boundary | The public UI/application-service boundary uses local/remote abstractions rather than direct HTTP coupling. | accepted |
+
+## Closure
+
+The accepted public-contract Steps are recorded in `c02c46c`, `8a369d0`, and
+`9d51892`. The final Phase release boundary records this completed Phase,
+its checklist, the package index, and its follow-up ledger together. Phase 1.1
+may consume that immutable release boundary but remains planned and out of this
+Phase's execution scope.
 
 ## TFC-00 acceptance
 
@@ -50,8 +58,9 @@ The project setup baseline is retained in
 
 Phase 1 is a Flutter package Phase. Its execution requires `flutter analyze`,
 `flutter test`, and a public-library import smoke appropriate to its settled
-package boundary. There is no SBT repository-full suite or aggregate SBT
-validation ownership in this repository.
+package boundary. `tool/verify_phase_1_release.sh` is the repository-owned
+release driver for those checks. There is no SBT repository-full suite or
+aggregate SBT validation ownership in this repository.
 
 ## Phase Plan Gate
 

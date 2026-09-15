@@ -40,6 +40,14 @@ flutter test
 Library-level validation runs in this repository. iOS/Android device and
 consumer smoke tests run from an explicitly admitted Flutter consumer app.
 
+## Delivery status
+
+Phase 1 is complete: it provides the public capture model, profile, and
+repository contracts described in [the Phase 1 record](docs/phase/phase-1.md).
+The next device/consumer vertical slice is separately planned as
+[Phase 1.1](docs/phase/phase-1.1.md); it is not implemented by this package
+release.
+
 ## Package layout
 
 ```text
@@ -47,6 +55,7 @@ lib/textus_flutter_core.dart  public API entry point
 lib/src/                      internal implementation, added with the first API
 test/                         package unit and widget tests
 docs/                         Phase and architecture records
+tool/verify_phase_1_release.sh Flutter package release-validation driver
 ```
 
 If Textus Flutter Core later owns native platform code rather than depending on
