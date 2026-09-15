@@ -38,6 +38,25 @@ final class CaptureItemId {
   String toString() => 'CaptureItemId($value)';
 }
 
+/// Identifies one externally defined capture profile.
+final class CaptureProfileId {
+  /// Creates a profile identifier from a non-blank [value].
+  CaptureProfileId(String value) : value = _requireNonBlank(value, 'value');
+
+  /// The externally supplied identifier value.
+  final String value;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CaptureProfileId && other.value == value;
+
+  @override
+  int get hashCode => value.hashCode;
+
+  @override
+  String toString() => 'CaptureProfileId($value)';
+}
+
 /// Names an externally defined kind of captured item.
 ///
 /// This is an open value type so applications can introduce their own kinds.
