@@ -77,7 +77,18 @@ Local Repository ---- Sync Boundary ---- Remote Repository / API Client
 
 UI must not be directly coupled to remote server operations so that Local Commit / Deferred Sync can be strengthened later.
 
-## Phase 1 minimum
+## Phase 1 delivery sequence
+
+The original Phase 1 delivery is partitioned into two sequential, independently
+closable Phases:
+
+- [Phase 1](../phase/phase-1.md) owns the reusable package baseline and the
+  public CaptureSession/CaptureItem, CaptureProfile, and repository contracts.
+- [Phase 1.1](../phase/phase-1.1.md) owns device capture, review/correction,
+  submit/sync behavior, external-app acceptance, and the Phase 2 handoff after
+  consuming Phase 1's release handoff.
+
+Together they retain the original Phase 1 minimum:
 
 - Flutter package / reusable module baseline
 - iPhone / Android execution support
@@ -92,7 +103,7 @@ UI must not be directly coupled to remote server operations so that Local Commit
 - result / error state
 - server-client abstraction
 
-## Deferred from Phase 1
+## Deferred from the Phase 1 delivery sequence
 
 - complete offline-first queue
 - robust background Deferred Sync
