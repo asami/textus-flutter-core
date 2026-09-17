@@ -44,9 +44,12 @@ consumer smoke tests run from an explicitly admitted Flutter consumer app.
 
 Phase 1 is complete: it provides the public capture model, profile, and
 repository contracts described in [the Phase 1 record](docs/phase/phase-1.md).
-The next device/consumer vertical slice is separately planned as
-[Phase 1.1](docs/phase/phase-1.1.md); it is not implemented by this package
-release.
+The device-runtime successor programme is separately planned as
+[Phase 1.1](docs/phase/phase-1.1.md) (foundation),
+[Phase 1.2](docs/phase/phase-1.2.md) (capture providers and Reference
+Application vertical slice), and [Phase 1.3](docs/phase/phase-1.3.md)
+(workflow, consumer acceptance, and Phase 2 handoff). None is implemented by
+this package release.
 
 ## Package layout
 

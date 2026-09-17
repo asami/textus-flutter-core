@@ -2,11 +2,15 @@
 
 Date: 2026-09-17
 Status: active
-Scope: Phase 1.1
+Scope: Phase 1.1 → Phase 1.2 → Phase 1.3 successor programme
 
 ## Decision
 
-Phase 1.1 establishes the reusable device-runtime foundation of Textus Flutter Core, not merely individual camera/capture functions.
+The Phase 1.1 → Phase 1.2 → Phase 1.3 successor programme establishes the
+reusable device-runtime foundation of Textus Flutter Core, not merely
+individual camera/capture functions. Phase 1.1 owns the architecture;
+Phase 1.2 proves it with capture providers and the Reference Application;
+Phase 1.3 owns workflow, consumer acceptance, and handoff.
 
 Device-dependent functions follow a common **Service / Provider** architecture:
 
@@ -30,9 +34,12 @@ Future device capabilities such as OCR, barcode scanning, location, and other se
 
 Capability discovery and runtime availability should be represented at the Provider boundary so a Service can select an available implementation without the consumer depending on platform details.
 
-## Phase 1.1 Reference Application
+## Reference Application successor ownership
 
-Phase 1.1 also introduces a **Reference Application** dedicated to Textus Flutter Core. It is not NICT Editing Studio and is not a disposable sample.
+Phase 1.1 introduces the boundary and skeleton of a **Reference Application**
+dedicated to Textus Flutter Core. It is not NICT Editing Studio and is not a
+disposable sample. Phase 1.2 delivers its capture vertical slice; Phase 1.3
+delivers review/submit and acceptance evidence.
 
 The Reference Application serves as:
 
@@ -42,13 +49,19 @@ The Reference Application serves as:
 - a controlled place to add and validate new device capabilities;
 - a future Pixel/on-device-AI experiment surface without coupling experiments to Editing Studio.
 
-The Phase 1.1 reference vertical slice covers camera/image capture, audio recording, text-note input, review/correction/removal/reorder, submit through a stub or application-provided repository integration, and device-capability diagnostics.
+The programme's Reference Application covers camera/image capture, audio
+recording, text-note input, review/correction/removal/reorder, submit through a
+stub or application-provided repository integration, and device-capability
+diagnostics. These are deliberately distributed across Phases 1.2 and 1.3
+after Phase 1.1 freezes their architectural boundary.
 
 `nict-editing-studio-app` remains the first practical external consumer. Its BookCaptureProfile and domain semantics must remain outside Textus Flutter Core.
 
-## AI Boundary in Phase 1.1
+## AI Boundary in Phase 1.3
 
-Phase 1.1 establishes the `AiService -> AiProvider` architecture and capability/availability boundary, but does not require advanced AI capture workflows.
+Phase 1.1 establishes the `AiService -> AiProvider` architecture and
+capability/availability boundary. Phase 1.3 records the concrete AI follow-up
+and Phase 2 handoff, but does not require advanced AI capture workflows.
 
 A later Phase can add concrete Pixel/Android on-device AI and then workflows such as image description, classification, metadata extraction, and suggestion generation. AI output should remain a suggestion until application/runtime review and confirmation; it must not silently become confirmed CaptureSession information.
 
@@ -56,4 +69,6 @@ A later Phase can add concrete Pixel/Android on-device AI and then workflows suc
 
 Camera and audio are the first concrete proof that the Service / Provider architecture works across real devices. AI uses the same architecture rather than becoming a special parallel integration mechanism.
 
-This turns Phase 1.1 into the device-runtime foundation on which Editing Studio, Agriculture, and other domain-specific CaptureProfile consumers can build.
+This turns the successor programme into the device-runtime foundation on which
+Editing Studio, Agriculture, and other domain-specific CaptureProfile consumers
+can build.

@@ -79,14 +79,19 @@ UI must not be directly coupled to remote server operations so that Local Commit
 
 ## Phase 1 delivery sequence
 
-The original Phase 1 delivery is partitioned into two sequential, independently
-closable Phases:
+The original Phase 1 delivery is partitioned into three sequential,
+independently closable successor Phases:
 
 - [Phase 1](../phase/phase-1.md) owns the reusable package baseline and the
   public CaptureSession/CaptureItem, CaptureProfile, and repository contracts.
-- [Phase 1.1](../phase/phase-1.1.md) owns device capture, review/correction,
-  submit/sync behavior, external-app acceptance, and the Phase 2 handoff after
-  consuming Phase 1's release handoff.
+- [Phase 1.1](../phase/phase-1.1.md) owns the device Service / Provider
+  architecture and Reference Application skeleton after consuming Phase 1's
+  release handoff.
+- [Phase 1.2](../phase/phase-1.2.md) owns camera/audio/text capture providers
+  and the Reference Application vertical slice after consuming Phase 1.1.
+- [Phase 1.3](../phase/phase-1.3.md) owns review/correction, submit/sync
+  behavior, device and external-app acceptance, and the Phase 2 handoff after
+  consuming Phase 1.2.
 
 Together they retain the original Phase 1 minimum:
 
