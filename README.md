@@ -51,6 +51,11 @@ Application vertical slice), and [Phase 1.3](docs/phase/phase-1.3.md)
 (workflow, consumer acceptance, and Phase 2 handoff). None is implemented by
 this package release.
 
+The package also exposes `SideBySideDisplayRegions` as a small, domain-neutral
+fold/hinge geometry primitive consumed by TFAF. It interprets full-height
+vertical display features from `MediaQueryData`; it does not implement the
+planned device Service/Provider programme or close Phase 1.1.
+
 ## Package layout
 
 ```text
