@@ -56,6 +56,16 @@ fold/hinge geometry primitive consumed by TFAF. It interprets full-height
 vertical display features from `MediaQueryData`; it does not implement the
 planned device Service/Provider programme or close Phase 1.1.
 
+The companion `SeparatedDisplayRegions` contract supports both full-height
+vertical and full-width horizontal fold/hinge separators. It exposes leading,
+separation, and trailing rectangles in Flutter-view logical coordinates and
+can clip them to an actual content viewport. `Axis.horizontal` means left/right
+panes; `Axis.vertical` means upper/lower panes. Positive separator thickness is
+occlusion; a zero-thickness fold still identifies two adjoining regions.
+The old side-by-side API remains unchanged. This is a first relevant full-span
+separator contract, not a general partitioner for multiple or partial display
+features. TFAF owns pane viability and presentation decisions.
+
 ## Package layout
 
 ```text
