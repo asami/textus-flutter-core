@@ -271,3 +271,99 @@ repairs3/3 and its separately approved S03 batch1/3 remain closed, without
 budget transfer; Phase repairs0/3 and PLAN epoch1 remain unchanged.
 This is Step evidence, not Phase completion, a package Phase closure,
 real-server E2E, CNCF admission, experiment allocation or evaluation.
+
+## Current ESA4-05 feasibility authoring — 2026-10-03
+
+Current status: ESA4-04 accepted-and-committed; ESA4-05 / S01-web-feasibility-and-handoff in_progress/AUTHORED_ONLY; combined SC01–SC20 evidence-complete/pending-review; app Phase 4 in_progress.
+Owner: app Phase 4 with Core runtime/context and TFAF presentation owners.
+Update rule: This dated projection supersedes earlier current-status, pending Web and precommit wording; historical proposals, failures, reviews and M0 records remain lineage. Promote acceptance only from parent checks, fresh independent Step review and actual Step commit.
+Closure basis: Parent-admitted actual W01–W10 plus unchanged accepted scoped specifications and concrete handoff; parent mechanical checks, independent ESA4-05 review and commit remain pending. Final full drivers, the sole comprehensive Phase review and distinct release are separate mandatory Phase gates.
+
+Actual ESA4-04 native Step commits are Core
+`84bf43384f63490d66dc8719b853b678d770b490`, TFAF
+`4f885b3772ac8fd1d3c84941355f7b28f3c45bdf`, App
+`248decd758aae659ab6a46c68ba42128369d3f13`.
+Retain independent review `esa4-04-review-20261003-root-01` revision 1 PASS,
+review ledger 13 and M0 lineage at ledger 14, with three closed ESA4-04 repairs.
+Original ESA4-03 repairs 3/3 and its separate approved S03 batch 1/3 remain
+closed; ESA4-05 repairs 0/3 and Phase repairs 0/3 remain separate.
+
+The parent sealed dossier `esa4-05-s01-actual-observation-dossier-20261003`
+revision 1 records ten actual browser rows at CSS 400×850 and 1200×850, one
+successful release Web SDK build (exit 0), actual static-root/readiness mapping
+and completed owned preview cleanup. These are new build/manual observations,
+with zero new test executions. Retained accepted evidence remains App CP35 and
+accumulator45, Core runtime98 and accumulator135, TFAF representative102 and
+regression55. The parent recorded all 117 captured inputs and indexes unchanged
+before authoring; reuse does not increase execution counts.
+
+W06 recovery uses only the confirmed second-session fresh2 capture; its early
+“explicit-fresh” filename still represents stale/pending state. W09's 400
+scaled Detail is screenshot evidence with transitional AX; 1200 AX corroborates
+the resource, and Largest=1.30 is a source declaration. Served fixture readiness
+proves identifiers plus HTTP200; its truncated body supplies no full response-byte
+equality claim. UI pixels supply neither hidden context bytes nor request counts.
+
+The unconverted common script execution contract is a final execution
+prerequisite outside product finding ledgers. The current Phase prohibits
+management-hash control; no old runner, direct-script bypass or relabeled SDK
+pair establishes the full-driver gate. This authoring changes no shared skill
+or agent. App Phase 5 remains planned; real server/CNCF admission, package Phase
+closure, assignment/allocation, evaluation/metrics and physical Fold/OS posture
+proof remain outside this fixture-local evidence.
+
+
+## Core feedback and final wrapper
+
+The [portable app handoff](../../../../Project2026/nict-editing-studio-app/docs/notes/display-prototype-feasibility-handoff-v1.md)
+contains W01–W10, declared fixed context/definition/revision identities, the full
+combined SC map, candidate codec/example links and existing successor owners.
+Its seven non-normative revisions are recorded below. Strict typed/scoped
+context bounds, producer replacement and exact request/no-replay facts retain
+accepted Core protocol/context/source/DS authority; Web pixels do not prove them.
+
+| Observation / evidence | Protocol requirement | Server-model proposal | Owner | Remaining real proof |
+| --- | --- | --- | --- | --- |
+| W02 preserves exact title; W03 changes only derived stage; CP03–07/source specs establish atomic semantics | Typed semantic input and revision-first atomic constraints | Entity/Aggregate owns title/description/workflowState, positive managed revision and admitted transition; never patch View/Display labels | Editing Studio ESS2-01 | Real semantic commit, concurrency and revision adapter |
+| W01 ordered resource selection; W02/03 coherent visible provenance; CP01 and protocol/source specs establish snapshot identity | Opaque resource identity and input-ready values with provenance/source revision; List snapshot differs from resource revision | Semantic View preserves semantic truth and freshness metadata | ESS2-01/02 | Actual source/projection correspondence and snapshot consistency |
+| W04 standard/cards/sections and locale-only; RG/protocol specs establish full-key identity | Typed values separate from localized labels; roles/order/editability and full namespace/set/arm/definitionVersion key | Display projection/definition preserves versioned registry correspondence, distinct from source/context/protocol versions | ESS2-02; TFAF supplied-key realization | Admitted server definitions and physical codec/version compatibility |
+| W05 scoped required-nonblank; W01 stage read-only; CP07, protocol/source and ED03–07 cover repeated-ID/types | screen/section/field locators scope input/errors, observed revision travels in transport, derived stage has no reverse parsing | Mutation Binding declares writable semantic targets and constraints; metadata grants no client permission | ESS2-01/02; CNCF revision transport | Real authority/If-Match, repeated section IDs and physical field errors |
+| W03 Operation receipt3 before explicit Reload3; CP04/DS establish zero implicit Display calls | Separate admitted ordinary Operation identity/resource-ID input and state availability, with transport revision/authority | Operation Binding owns transition/availability; explicit Display reload retains generic admitted flow | ESS2-01/02; CNCF continuation | Actual separate Operation admission and continuation |
+| W06 committed2/stale1 then explicit fresh2; W07 read failure/retry; W10 unknown history then fresh2 and explicit draft reconciliation; CP05/08–11/DS cover noOp/conflict/no replay | Distinguish changed/noOp/reject/conflict/commit receipt from fresh/pending/read failure/unknown delivery; preserve committed floor and never replay automatically | Command/projection envelopes distinguish delivery, commit and lag; safe reads never rewrite failed command history | ESS2-02/03; CNCF envelope; Core runtime | Real commit/projection lag, ambiguous delivery and reconciliation |
+| W04 locale-only and supplied A/B/C appearances; CP13, context/DS/RG prove bounded carriage and policy | Bounded typed/versioned projection of allowed ExecutionContext material; fixed assignment/flow and replaceable attempt, strict known families and bounded optional omission/diagnostic | Map every projected field to actual producer source; validate/rebind ingress, required unsupported/expired reject; bytes grant no authority | CNCF Phase 96; server producer | Field-by-field source mapping, ingress admission, separate-operation continuation and explicit nested inheritance |
+
+## ESA4-05 independent acceptance / commit preparation — 2026-10-03
+
+Current status: Complete ESA4-05 feasibility evidence and independent Step review accepted; local Step commits prepared, not yet recorded; Phase 4 remains OPEN.
+Owner: app Phase 4, with Core protocol/context/runtime and TFAF supplied-key/UI/draft responsibilities.
+Update rule: This dated evidence supersedes earlier authoring-only, pending-parent-check and repair0 wording. Preserve historical authoring and observation records; record native Step revisions only after actual commit success.
+Closure basis: Complete-Step independent review PASS and the admitted actual Web matrix plus unchanged scoped executable evidence; local Step commit, sole comprehensive Phase review, final full validation and distinct Phase release remain required.
+
+Independent review `esa4-05-review-20261003-root-01` revision 1 is PASS at
+review ledger revision 15, covering all 12 owned Step paths and 117 affected
+inputs, including the five documentary repairs, with zero CPB/HYG/DEV findings.
+The actual W01–W10 Web400/1200 matrix and combined SC01–SC20 evidence are
+accepted for this provisional client feasibility Step. Retained successful
+executions are App representative35 / accumulator45, Core runtime98 /
+accumulator135, and TFAF representative102 / accumulator55; they are unchanged
+historical execution evidence, not new tests or final full validation.
+One successful SDK release Web build and actual UI observations are separate
+evidence. The final parent mechanical preflight passed all 12 targets, 125
+local destinations and exact Core driver text/mode/syntax, with no finding.
+The Core driver was not executed.
+
+The seven protocol/server-model feedback rows remain non-normative proposals.
+Core owns typed context and request/runtime continuity; TFAF renders a supplied
+full arm key and manages scoped UI/drafts; the App composes declarations and
+shared Settings. No allocation, experiment evaluation, metrics, manual context
+copying or production authority is claimed. Source/scoped executable facts are
+distinguished from pixels, including confirmed W06 recovery and bounded W09
+Settings observations.
+
+ESA4-05 repair1/3 is independently accepted and closed. Prior ESA4-03/04
+repair3/3 and the separately approved S03 additionalbatch1/3 remain closed,
+without budget transfer; Phase repair0/3 and PLAN epoch1 remain unchanged.
+The common script execution contract remains a final execution prerequisite.
+All three final `scripts/validate-full.sh` results, sole comprehensive Phase
+review and distinct release are pending. Real-server/CNCF admission belongs to
+the declared successors and App Phase 5; package or server Phases are not closed.
