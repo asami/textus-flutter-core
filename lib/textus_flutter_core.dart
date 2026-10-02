@@ -15,4 +15,6 @@ export 'src/display/presentation_context.dart';
 export 'src/display/display_transport.dart';
 export 'src/display/scripted_display_transport.dart';
 export 'src/display/display_prototype_fixture.dart';
+export 'src/display/fixture_display_source.dart';
+export 'src/display/display_session.dart';
 export 'src/repository/capture_repository.dart';
