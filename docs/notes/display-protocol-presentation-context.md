@@ -221,3 +221,53 @@ The separate approved S03 four-file batch closed at one of three attempts;
 original Step repairs 3/3 and Phase repairs 0/3 remain unchanged.
 These results do not establish composed SC01–SC20, Web400/1200, a package Phase,
 final full validation, comprehensive Phase review/release or real-server E2E.
+
+## Current ESA4-03 commits / App composition authoring — 2026-10-03
+
+Current status: ESA4-03 accepted-and-committed; App ESA4-04 AUTHORED_ONLY pending parent checks/review; SC01–SC20 OPEN; app Phase 4 in_progress.
+Owner: Core source/session/context under app Phase 4; app owns configuration/composition.
+Update rule: Retain historical proposal, authoring/precommit, independent review/M0 and failure lineage; update acceptance only from native parent evidence.
+Closure basis: App composed evidence plus unchanged package specification scopes, selected focused checks, independent Step review and separate commit; Web/final drivers/sole Phase review/release remain required.
+
+Actual ESA4-03 commits are Core `33f99d4e2a86ba4827092876d56e53bb6307f34d`,
+TFAF `b4d23403f3a82033d4c392b5e174218b976ec9ea`, App
+`da5cf4e3ef26221788314b190edb5d27b7624d3f`. Retain independent review
+`esa4-03-review-20261003-root-01` revision1 PASS, selected S02 successes237
+and S03 executions161. Original repairs3/3 and closed approved S03 batch1/3
+remain unchanged; ESA4-04 repairs0/3 and Phase repairs0/3 are separate.
+
+[App composition v1](../../../../Project2026/nict-editing-studio-app/docs/notes/display-client-composition-v1.md)
+consumes the unchanged public FixtureDisplaySource, DisplaySession and policy
+APIs. Core retains request construction, received-context continuation,
+fixed-flow admission, separate Operation, safe reload/retry and receipt/freshness
+ownership. The App builds one pristine session/context per explicit fixed case
+and transfers it to TFAF; no per-request copying, context merge or arm decision.
+CP01–CP20 and the combined SC/package map are authored/pending. Strict typed/
+scoped/context bounds and producer replacement still require actual protocol,
+context and DS evidence; CP alone supplies no closure. This Slice changes no
+Core product/spec/config and creates no package Phase or server/CNCF acceptance.
+See the [documentary handoff journal](../journal/2026/10/2026-10-03-display-prototype-esa4-04-composition.md).
+
+## ESA4-04 independent acceptance / commit preparation — 2026-10-03
+
+Current status: Complete ESA4-04 implementation and independent Step review accepted; local Step commits prepared, not yet recorded; Phase 4 and SC01–SC20 OPEN.
+Owner: app Phase 4, consuming unchanged public Core/TFAF prototype APIs.
+Update rule: This dated evidence supersedes earlier current-status and repair0 wording; retain historical authoring and failure records. Record native Step revisions after actual commit success.
+Closure basis: Complete-Step independent review PASS and selected execution evidence; separate local Step commit remains required. ESA4-05 Web400/1200, protocol/model feedback, final full validation, sole Phase review and distinct release remain required.
+
+Review `esa4-04-review-20261003-root-01` revision 1 is PASS at review ledger
+revision 13, covering all 15 owned Step paths and 98 captured inputs, with
+zero CPB/HYG/DEV findings. Actual final App execution passed 35 representative
+CP01–CP20 cases and 45 regression tests. Six-target fatal-info analysis had
+zero issues and the nonwriting six-target formatter reported zero changes.
+Historical package evidence was reused after proving 49 package inputs unchanged:
+Core runtime98 and five-suite accumulator135 (including protocol/context),
+TFAF representative102 and regression55. These are retained executions, not new tests.
+The combined SC map uses typed/scoped/context package proof as well as App cases;
+actual Web observations for SC02/04/11/12/20 and final Phase gates remain pending.
+
+ESA4-04 repairs3/3 are independently accepted and closed. Original ESA4-03
+repairs3/3 and its separately approved S03 batch1/3 remain closed, without
+budget transfer; Phase repairs0/3 and PLAN epoch1 remain unchanged.
+This is Step evidence, not Phase completion, a package Phase closure,
+real-server E2E, CNCF admission, experiment allocation or evaluation.
