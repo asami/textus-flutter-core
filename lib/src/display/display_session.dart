@@ -257,7 +257,7 @@ final class DisplaySession extends ChangeNotifier {
   bool _freshList = false;
   bool _freshDetail = false;
   bool _disposed = false;
-  bool _notifying = false;
+  int _notificationDepth = 0;
   bool _notifierDisposed = false;
   bool _contextLatched = false;
   DisplaySessionFailure? _contextFailure;
@@ -289,12 +289,12 @@ final class DisplaySession extends ChangeNotifier {
       return;
     }
     _state = _snapshot();
-    _notifying = true;
+    _notificationDepth++;
     try {
       notifyListeners();
     } finally {
-      _notifying = false;
-      if (_disposed && !_notifierDisposed) {
+      _notificationDepth--;
+      if (_notificationDepth == 0 && _disposed && !_notifierDisposed) {
         _notifierDisposed = true;
         super.dispose();
       }
@@ -307,6 +307,9 @@ final class DisplaySession extends ChangeNotifier {
     }
     if (_busy) {
       throw StateError('DisplaySession is busy');
+    }
+    if (_notificationDepth > 0) {
+      throw StateError('DisplaySession is notifying listeners');
     }
   }
 
@@ -860,7 +863,7 @@ final class DisplaySession extends ChangeNotifier {
       return;
     }
     _disposed = true;
-    if (!_notifying) {
+    if (_notificationDepth == 0 && !_notifierDisposed) {
       _notifierDisposed = true;
       super.dispose();
     }

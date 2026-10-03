@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:textus_flutter_core/textus_flutter_core.dart';
 
@@ -1729,6 +1730,140 @@ void main() {
       );
       session.dispose();
     });
+
+    for (final method in ['query', 'reload']) {
+      for (final discard in [false, true]) {
+        test(
+          'DS38 completion $method reentry has no effects '
+          '${discard ? 'and listener disposal waits for notification unwind' : 'and preserves the completed session'}',
+          () async {
+            // Given coherent projections, an instrumented clock and recorded raw ports.
+            final ports = RecordingPorts();
+            var clockCalls = 0;
+            final session = makeSession(
+              ports,
+              clock: () {
+                clockCalls++;
+                return DateTime.utc(2026, 10, 2);
+              },
+            );
+            await loadActive(session);
+            final beforeClockCalls = clockCalls;
+            final beforeDisplayCalls = ports.calls.length;
+            final beforeOperationCalls = ports.operations.length;
+            final beforeCommand = session.state.command;
+            DisplaySessionState? completed;
+            Future<void>? rejection;
+            var attempted = false;
+            var completionClockCalls = 0;
+            var completionDisplayCalls = 0;
+            var completionOperationCalls = 0;
+            var notifications = 0;
+            var laterListeners = 0;
+            var disposalListeners = 0;
+            final frameworkErrors = <FlutterErrorDetails>[];
+            final previousErrorHandler = FlutterError.onError;
+            FlutterError.onError = frameworkErrors.add;
+            try {
+              session.addListener(() {
+                notifications++;
+                if (session.state.busy ||
+                    session.state.list.phase != DisplaySessionReadPhase.ready ||
+                    attempted) {
+                  return;
+                }
+                // Given the original query's completed idle snapshot is being notified.
+                attempted = true;
+                completed = session.state;
+                completionClockCalls = clockCalls;
+                completionDisplayCalls = ports.calls.length;
+                completionOperationCalls = ports.operations.length;
+                // When this completion listener immediately attempts the named entry.
+                final reentered = method == 'query'
+                    ? session.query()
+                    : session.reload();
+                // Then attach the failed-Future expectation within this callback.
+                rejection = expectLater(reentered, throwsStateError);
+                expect(session.state, same(completed));
+                expect(clockCalls, completionClockCalls);
+                expect(ports.calls, hasLength(completionDisplayCalls));
+                expect(ports.operations, hasLength(completionOperationCalls));
+              });
+              session.addListener(() {
+                if (!discard || !identical(session.state, completed)) {
+                  return;
+                }
+                // Given a later listener is still inside the same completion notification.
+                disposalListeners++;
+                // When it discards the flow twice before notification unwinds.
+                session.dispose();
+                session.dispose();
+                // Then logical disposal is immediate and the snapshot is retained.
+                expect(session.isDisposed, isTrue);
+                expect(session.state, same(completed));
+              });
+              session.addListener(() {
+                if (!identical(session.state, completed)) {
+                  return;
+                }
+                // Given the completion notification has reached its final listener.
+                laterListeners++;
+                // When this listener observes the flow after any preceding disposal.
+                final disposed = session.isDisposed;
+                // Then logical disposal is visible while physical teardown still waits.
+                expect(disposed, discard);
+                expect(session.state, same(completed));
+                expect(clockCalls, completionClockCalls);
+                expect(ports.calls, hasLength(completionDisplayCalls));
+                expect(ports.operations, hasLength(completionOperationCalls));
+              });
+              // When the original query completes and all notification frames unwind.
+              await session.query();
+              await rejection;
+              // Then only that original query used the clock and Display port.
+              expect(attempted, isTrue);
+              expect(rejection, isNotNull);
+              expect(completed, isNotNull);
+              expect(clockCalls, beforeClockCalls + 2);
+              expect(ports.calls, hasLength(beforeDisplayCalls + 1));
+              expect(ports.calls.last.kind, DisplayRequestKind.query);
+              expect(ports.operations, hasLength(beforeOperationCalls));
+              expect(notifications, 4);
+              expect(laterListeners, 1);
+              expect(disposalListeners, discard ? 1 : 0);
+              expect(frameworkErrors, isEmpty);
+              // Then rejection and optional disposal leave the original result intact.
+              expect(session.state, same(completed));
+              expect(session.state.busy, isFalse);
+              expect(session.state.list.phase, DisplaySessionReadPhase.ready);
+              expect(session.state.detail.phase, DisplaySessionReadPhase.ready);
+              expect(session.state.selectedResourceId, 'opaque:first');
+              expect(session.state.command, same(beforeCommand));
+              expect(session.isDisposed, discard);
+              // Given all original completion listeners have finished.
+              void listener() {}
+              Object? attachmentError;
+              // When a caller tries to attach a listener after completion.
+              try {
+                session.addListener(listener);
+              } catch (error) {
+                attachmentError = error;
+              }
+              // Then only the discarded notifier rejects the public attachment.
+              if (discard) {
+                expect(attachmentError, isA<FlutterError>());
+              } else {
+                expect(attachmentError, isNull);
+                session.removeListener(listener);
+              }
+            } finally {
+              FlutterError.onError = previousErrorHandler;
+              session.dispose();
+            }
+          },
+        );
+      }
+    }
 
     test('DS39 invalid configured IDs have no eager side effects', () {
       // Given instrumented dependencies and each of the five configured string positions.
