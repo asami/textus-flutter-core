@@ -6,6 +6,14 @@
 /// unsupported platforms expose the same API and throw UnsupportedError.
 library;
 
+// Original audio runtime, strict PCM and append-only transcript contracts.
+export 'src/audio/audio_capture.dart';
+export 'src/audio/audio_capture_service.dart';
+export 'src/audio/audio_transcript.dart';
+export 'src/audio/audio_transcript_codec.dart';
+export 'src/audio/android_audio_provider.dart';
+export 'src/audio/pcm_wave_audio.dart';
+
 // Domain-independent capture values and contracts.
 export 'src/capture/capture_identifiers.dart';
 export 'src/capture/capture_item.dart';

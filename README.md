@@ -66,6 +66,36 @@ The old side-by-side API remains unchanged. This is a first relevant full-span
 separator contract, not a general partitioner for multiple or partial display
 features. TFAF owns pane viability and presentation decisions.
 
+## Original audio and editable transcript
+
+- Current status: Implemented; independent Step acceptance pending.
+- Owner: textus-flutter-core maintainer.
+- Update rule: append actual parent-owned validation and acceptance evidence;
+  preserve separate Core Phase histories.
+
+The bounded App Phase 6.1 connected delivery adds public original audio capture,
+durable exact-byte replay, saved-input Basic transcription and append-only
+editable transcript provenance. See the
+[audio API and strict version 1 schema](docs/notes/original-audio-and-transcript-review.md).
+The optional Android registration package is included by Core's path dependency.
+Recording requires explicit microphone permission; Basic ASR requires API 31
+and actual exact-locale model readiness, with model preparation requested
+explicitly. Unsupported/missing-plugin recognition stays unavailable while
+manual transcript entry remains usable. Ordinary Activity pause cancels active
+work without terminally disposing sessions; a pending microphone permission
+grant waits for the same attached Activity to resume before capture starts.
+Detach, destroy and explicit disposal remain terminal.
+
+Initial parent-owned checks passed 14 of 15 representative service tests (the
+remaining failure was missing test binding initialization), passed all 93 related
+accumulator tests, and reported 10 analyzer info diagnostics. The bounded repair
+addresses that fixture, lifecycle/cleanup behavior and mechanical conformance;
+parent revalidation and independent Step acceptance remain pending. Android
+consumer compilation, native helper validation and actual device/model acceptance
+are also pending. The Phase orchestrator records subsequent closure evidence
+before Step acceptance. This connected delivery does not close Core's own
+planned Phases.
+
 ## Package layout
 
 ```text
