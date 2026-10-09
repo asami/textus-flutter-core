@@ -1,0 +1,19 @@
+name: textus_flutter_core_android_genai
+description: Optional Android native registration for Textus Flutter Core Gemini Nano.
+version: 0.0.1
+publish_to: none
+
+environment:
+  sdk: ^3.13.3
+  flutter: ">=3.47.4"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: org.textus.flutter.core.genai
+        pluginClass: TextusFlutterCoreAndroidGenaiPlugin

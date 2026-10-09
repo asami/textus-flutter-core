@@ -29,3 +29,9 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 /build/
 /coverage/
+
+# Optional Android GenAI companion generated inputs.
+/packages/textus_flutter_core_android_genai/android/.gradle/
+/packages/textus_flutter_core_android_genai/build/
+/packages/textus_flutter_core_android_genai/android/build/
+/packages/textus_flutter_core_android_genai/pubspec.lock
