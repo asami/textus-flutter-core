@@ -282,3 +282,58 @@ Core -> TFAF -> App. Shared whole-file dependencies require a coherent accepted
 accumulator covering02/03/05 and supplemental01 in each participating repository;
 each Step keeps its own acceptance and eventual native commit attribution.
 No commit or Phase completion is claimed by this documentary append.
+
+## Phase 6 final acceptance — 2026-10-09
+
+Phase 6 accepts local Book Material editing for ESA6-01/02/03/05: durable originals,
+derived recognition proposals, independently editable representative attributes,
+photo roles, direct text, local Draft save/reload and List/Detail/Edit navigation.
+Core owns storage, settings, provider capability and standard/enhanced processing;
+TFAF owns reusable interaction and presentation; App owns Book mapping and flow.
+Opaque recognition/presentation context is carried through the common boundaries.
+
+The original ESA6-01 commits and separate ESA6-02/03/05 review histories remain.
+The coherent accepted Step commits are Core `5282639`, TFAF `d0d9ab0`, App `59d8468`.
+Shared whole-file dependencies are attributed to every included accepted Step;
+these are three actual Git events, not invented separate commits for each Step.
+The sole comprehensive Phase review passed: `esa6-phase-full-acceptance-20261009@1`,
+177 whole target programs and 18 affected programs, no Current Boundary Blockers.
+Its single filename transcription correction is retained with the original result.
+
+Final upstream validation used each committed `scripts/validate-full.sh`:
+Core complete analyze passed and all 470 tests passed (native terminal `36b4c7`, exit0);
+TFAF complete analyze passed and all 485 tests passed (`0ad093`, exit0).
+Both ran through registered `cncf_runtime_runner`, GPT-6 Luna / low, exact scoped
+escalation for normal Flutter/Dart caches. Console output was truncated; no complete
+log is claimed. Retained App focused checks include 611 affected cases, post-repair
+128 affected cases, source analysis and native Kotlin 22 cases; overlapping checks
+are not summed or represented as an App full suite.
+
+Actual Fold and Sony observations cover photo-role capture, standard recognition,
+editable corrections, Save Draft, cold restart and List/Detail/Edit reload. Fold
+also covers local Nano comparison; Sony covers unavailable enhanced processing and
+explicit standard fallback. Requested and actual configurations remain distinct.
+The book was 窯変源氏物語 第7巻, ISBN 9784122025660. Raw inaccurate Nano proposals,
+original photos and human corrections are retained separately. These observations
+do not establish general recognition accuracy or unobserved physical exceptional
+cases; controlled software cases retain their separate evidence.
+
+The five accepted OPEN Hygiene records remain in the App's canonical
+`2026-10-06-phase-6-hygiene-follow-up.md`; they are nonblocking follow-up, not fixed
+or discarded by release. No Development Candidate was admitted in the full review.
+Versions remain App 1.0.0+1, Core/TFAF 0.0.1: no version-update rule or release
+coordinate conversion is selected for this local Phase acceptance.
+
+App aggregate full validation is `deferred-not-run`, owned by PHASE-6.1 under the
+retained final-only local-driver declaration. Phase 6.1 remains planned and unstarted.
+It consumes stable identity/media/persistence, original/derived/human separation and
+Book Commit eligibility (`ISBN present OR title present`); incomplete Draft saving
+needs neither. Actual Commit, durable enqueue/background transmission, audio and
+transcription belong to Phase 6.1. Fixture Reference Workspace is accepted here;
+real-server browsing remains the Phase 5 integration line. No push or publication
+is performed by this local release. This section records the final release boundary;
+the distinct release commit and its verified native closure receipt persist it.
+
+Earlier pending, failed and precommit statements below/above remain dated history.
+This final acceptance supersedes their current-status projections without rewriting
+their actual observations, test results or repair accounting.
