@@ -4,9 +4,9 @@ status=active
 Owner: textus-flutter-core Phase 2.
 Plan: [Phase 2](phase-2.md).
 Only the explicitly evidenced entry/contract and accepted TFC2-01 item below
-are checked, along with independently accepted TFC2-02 implementation. Its
-commit, TFC2-03, whole behavioral acceptance, full-package validation, full review
-and Phase release obligations remain pending.
+are checked, along with independently accepted and committed TFC2-02.
+TFC2-03 independent owning review passed; its exact commit, whole behavioral
+acceptance, full-package validation, full review and Phase release remain pending.
 
 ## Entry
 
@@ -23,11 +23,11 @@ and Phase release obligations remain pending.
 ## TFC2-02: Execution and recovery
 
 - [x] Implement durable execution, targeted retry, partial failure and restart.
-- [ ] Record focused behavioral evidence, independent acceptance and the owning Step commit.
+- [x] Record focused behavioral evidence, independent acceptance and the owning Step commit.
 
 ## TFC2-03: Public handoff and consumer verification
 
-- [ ] Provide fixtures, adapter evidence and accepted APIs to TFAF/app.
+- [x] Provide fixtures, adapter evidence and accepted APIs to TFAF/app.
 - [ ] Record focused behavioral evidence, independent acceptance and the owning Step commit.
 
 ## Behavioral acceptance
@@ -69,7 +69,7 @@ App reviews/tests are borrowed evidence only. TFC2-01 owning independent review
 passed as `tfc2-01-owning-step-review-20261011@1`; its exact Step commit is
 `cd9da12f7219c8096762f5c16f3f2f5bb3998a65`. TFC2-02 documentary evidence is
 authored and its parent intake/owning independent protected review passed;
-its exact commit remains pending. The composite Step commit item, TFC2-03,
+its exact commit is `95942a5c260adc37608f8b002284097e7b61f905`. TFC2-03,
 whole behavioral, full-package/full-review and release items remain unchecked
 pending their actual owning evidence.
 
@@ -99,3 +99,43 @@ This is no standalone package or whole-Phase release. TFC2-03, Core full-package
 validation/comprehensive Phase review/distinct release, TFAF Phase 3 and App
 Step/Phase/aggregate/release closure remain required. Existing contracts and source
 are unchanged by this factual bookkeeping; no new remote/server result is inferred.
+
+## 2026-10-11 — TFC2-02 commit and TFC2-03 scope receipt
+
+Actual TFC2-02 commit `95942a5c260adc37608f8b002284097e7b61f905` contains the
+selected 49 paths after `tfc2-02-owning-step-review-20261011@1` PASS. Its
+composite evidence/review/commit item is now checked. TFC2-01 remains accepted
+and committed at `cd9da12f7219c8096762f5c16f3f2f5bb3998a65`. The dated
+precommit snapshot above and historical journals retain their original outcomes.
+
+TFC2-03 documentary handoff is authored within exactly eight paths: the original
+six public library, three test-owned support fixtures, public handoff note and
+owning TFC2-03 journal, plus the two shared Phase progress documents. See the
+[exact path inventory and evidence](../journal/2026/10/2026-10-11-tfc2-03-acceptance.md).
+This author owns only the four documents. Core total scope remains 80 paths.
+Existing programs, contracts and executable specifications are adopted unchanged.
+
+Both TFC2-03 boxes remain unchecked pending independent Step review and exact
+commit. All whole behavioral, full-package, comprehensive review and release
+boxes remain unchecked. Scoped RA3/375, later115/native37/NC/NQ/ND and public
+TFAF234/App100/BH72 evidence retain their actual limits; separate TFAF/App Phase
+and App aggregate/release gates remain required.
+
+## 2026-10-11 — Owning TFC2-03 acceptance before commit
+
+Parent intake covered all eight owning paths and four target programs, with 48
+local links and 62 export targets resolved. Independent protected review
+`tfc2-03-owning-step-review-20261011@1` returned PASS over eight owning and 42
+selected paths. Current blockers, Hygiene and Development Candidate findings
+were explicitly empty. The review assessed Core, TFAF and App consumers with
+actual scoped software/native evidence; it executed no validation commands.
+
+This receipt supersedes only current progress. Earlier dated authored-only and
+precommit receipts retain their original outcomes. Only the TFC2-03 fixture/API
+handoff implementation item is now checked; its composite evidence/review/commit
+item remains open until the native commit is verified. The exact eight-path Step
+commit is pending. Core full-package validation, comprehensive Phase review and
+distinct release, TFAF Phase 3 and App Step/Phase/aggregate closure remain required.
+Controlled remote results and native synthetic 68-byte transfer do not establish
+whole Book-media transfer, successful headless upload or actual server acceptance.
+No normative contract, executable, configuration or fixture meaning changes here.

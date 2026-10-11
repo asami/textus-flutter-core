@@ -49,6 +49,26 @@ export 'src/repository/capture_repository.dart';
 export 'src/repository/local_capture_store.dart';
 export 'src/repository/file_capture_store.dart';
 
+// Durable explicit submission intent, resumable checkpoints and borrowed ports.
+export 'src/submission/submission_request.dart';
+export 'src/submission/submission_record.dart';
+export 'src/submission/submission_transfer_status.dart';
+export 'src/submission/submission_codec.dart';
+export 'src/submission/submission_queue_store.dart';
+export 'src/submission/sqlite_submission_queue_store.dart';
+export 'src/submission/submission_adapters.dart';
+export 'src/submission/submission_service.dart';
+export 'src/submission/submission_connections.dart';
+export 'src/submission/drive_submission_storage_adapter.dart';
+export 'src/submission/http_submission_transport.dart';
+export 'src/submission/submission_configuration.dart';
+export 'src/submission/submission_reference_access.dart';
+export 'src/submission/android_submission_configuration.dart';
+export 'src/submission/submission_run_lifetime.dart';
+export 'src/submission/submission_background_resources.dart';
+export 'src/submission/submission_background_runner.dart';
+export 'src/submission/android_submission_background.dart';
+
 // Generic settings runtime and independent desired recognition configuration.
 export 'src/settings/setting_definition.dart';
 export 'src/settings/settings_registry.dart';
