@@ -149,3 +149,35 @@ whole-Phase closure. Core/TFAF full suites remain pending Phase6 release; the
 App aggregate driver is deferred-not-run to Phase6.1. This Step establishes no
 physical-device or default-directory acceptance, nor camera, recognition, UI,
 audio or submission acceptance.
+
+## 2026-10-10 — FIX23 operation-time absence correction
+
+Frozen repair `esa61-submission-core-readiness-fix23-20261010@1` preserves the
+historical ESA6-01 acceptance above. Its Core correction
+`VF-ESA61-CORE-MISSING-LIST-001` treats null/empty as the missing-path observation
+from the actual document read or collection listing. It removes the later stat
+that could see a concurrent creation and spuriously rethrow the earlier ENOENT.
+A subsequent read/list can see that new final document. Reads and listings remain
+free of writes, retries and eager directory creation. Original bytes, safe sorted
+listing, strict JSON/corruption checks, atomic flushed replacement and propagation
+of nonmissing errors retain their contracts.
+
+The new [absence race specifications](../../test/capture/file_capture_store_absence_race_test.dart)
+use scoped IOOverrides and real temporary native files. F1 creates a real
+collection and final JSON file after its actual ENOENT listing, then rethrows
+that same error: the first public listing is empty, the next returns the retained
+id. F2 creates a valid final object after its actual ENOENT read and rethrows the
+same error: the first public read is null, the next returns the exact object.
+F3 exposes the same nonmissing permission errors from selected reads/listings
+while retaining accepted document contents and original bytes. File-system type
+checks remain native; no successful disk result is synthesized. Each scenario,
+callback, wrapper and setup/teardown carries adjacent Given/When/Then clauses.
+
+The companion `VF-ESA61-CORE-SQLITE-OPEN-001` correction configures SQLite's
+unchanged 5000ms busy wait before the initial FULL synchronous pragma, with the
+real independent-open Q4 regression in the queue specification. Parent-selected
+coverage includes Core submission/capture/audio consumers and App BU7 queue
+acquisition plus W5 held-camera exit while its writer settles. Parent validation
+and fresh independent protected source conformance review are pending; existing
+source acceptance remains historical. No command pass, commit, native/Drive
+acceptance, whole-Step acceptance or Phase closure is asserted by this authoring.

@@ -3,8 +3,10 @@
 status=active
 Owner: textus-flutter-core Phase 2.
 Plan: [Phase 2](phase-2.md).
-Only the explicitly evidenced entry/contract items below are checked. Remaining
-Step commit, execution/recovery, handoff and whole-Phase obligations are pending.
+Only the explicitly evidenced entry/contract and accepted TFC2-01 item below
+are checked, along with independently accepted TFC2-02 implementation. Its
+commit, TFC2-03, whole behavioral acceptance, full-package validation, full review
+and Phase release obligations remain pending.
 
 ## Entry
 
@@ -16,11 +18,11 @@ Step commit, execution/recovery, handoff and whole-Phase obligations are pending
 ## TFC2-01: Public state and adapter contract
 
 - [x] Freeze upload/submission identity, dependencies, persisted state and actions.
-- [ ] Record focused behavioral evidence, independent acceptance and the owning Step commit.
+- [x] Record focused behavioral evidence, independent acceptance and the owning Step commit.
 
 ## TFC2-02: Execution and recovery
 
-- [ ] Implement durable execution, targeted retry, partial failure and restart.
+- [x] Implement durable execution, targeted retry, partial failure and restart.
 - [ ] Record focused behavioral evidence, independent acceptance and the owning Step commit.
 
 ## TFC2-03: Public handoff and consumer verification
@@ -64,8 +66,36 @@ Step commit, execution/recovery, handoff and whole-Phase obligations are pending
 
 Parent-selected checkout and original contracts have been inspected. Existing
 App reviews/tests are borrowed evidence only. TFC2-01 owning independent review
-passed as `tfc2-01-owning-step-review-20261011@1`. Its commit and all later
-Step/full-validation/release checkboxes remain pending.
+passed as `tfc2-01-owning-step-review-20261011@1`; its exact Step commit is
+`cd9da12f7219c8096762f5c16f3f2f5bb3998a65`. TFC2-02 documentary evidence is
+authored and its parent intake/owning independent protected review passed;
+its exact commit remains pending. The composite Step commit item, TFC2-03,
+whole behavioral, full-package/full-review and release items remain unchecked
+pending their actual owning evidence.
 
 TFC2-01 evidence: `tfc2-01-owning-step-review-20261011@1`, PASS; exact
-Step commit pending. Later owning Step/full-Phase gates remain required.
+Step commit `cd9da12f7219c8096762f5c16f3f2f5bb3998a65`. This dated current
+projection supersedes precommit status snippets in the unchanged
+[predecessor journal](../journal/2026/10/2026-10-11-tfc2-01-acceptance.md); they
+remain historical. See [TFC2-02 evidence](../journal/2026/10/2026-10-11-tfc2-02-acceptance.md)
+for the six-document authoring subset within its exact 49-path boundary. Core
+total scope remains 80 paths. Later owning Step/full-Phase gates remain required;
+no scoped App entry-review PASS substitutes for them.
+
+## 2026-10-11 — Owning TFC2-02 acceptance before commit
+
+The parent completed the six-document intake and selected 49-path whitespace/link
+checks. Independent protected review `tfc2-02-owning-step-review-20261011@1`
+returned PASS over 49 owning and 84 selected paths, including all 34 target
+programs and five configuration inputs. Current blockers, Hygiene and Development
+Candidate findings were explicitly empty. The review inspected actual scoped
+RA3/375, later SQLite Q4/115, clean analysis, native 37-case and NC/NQ/ND results;
+it executed no product validation. Their controlled/native/synthetic limits remain.
+
+This dated receipt supersedes only earlier current-status implications; historical
+failures, authored-only receipts and their outcomes remain unchanged. The parent
+prepares the exact 49-path local Step commit. Its native outcome is still pending.
+This is no standalone package or whole-Phase release. TFC2-03, Core full-package
+validation/comprehensive Phase review/distinct release, TFAF Phase 3 and App
+Step/Phase/aggregate/release closure remain required. Existing contracts and source
+are unchanged by this factual bookkeeping; no new remote/server result is inferred.

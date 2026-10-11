@@ -47,8 +47,8 @@ the existing app plan's KTL/Google Drive adapter is not a separate third stage.
 
 | ID | Step | Outcome | Status |
 | --- | --- | --- | --- |
-| TFC2-01 | Public state and adapter contract | Freeze upload/submission identity, dependencies, persisted state and actions. | reviewed; commit pending |
-| TFC2-02 | Execution and recovery | Implement durable execution, targeted retry, partial failure and restart. | planned |
+| TFC2-01 | Public state and adapter contract | Freeze upload/submission identity, dependencies, persisted state and actions. | accepted; committed cd9da12 |
+| TFC2-02 | Execution and recovery | Implement durable execution, targeted retry, partial failure and restart. | owning review passed; commit pending |
 | TFC2-03 | Public handoff and consumer verification | Provide fixtures, adapter evidence and accepted APIs to TFAF/app. | planned |
 
 ## Entry and validation
@@ -91,14 +91,16 @@ TFAF can therefore consume the accepted handoff without a circular dependency.
 
 ## Connected execution plan — 2026-10-11
 
-Current status: TFC2-01 independent protected Step review passed; its exact
-commit is pending. TFC2-02/03 and whole-Phase acceptance remain pending.
+Current status (2026-10-11): TFC2-01 independent protected Step review passed
+and its exact commit is `cd9da12f7219c8096762f5c16f3f2f5bb3998a65`. TFC2-02
+parent intake and protected owning review passed; its exact commit, TFC2-03
+and whole-Phase acceptance remain pending.
 Owner: textus-flutter-core Phase 2, coordinated by the existing App Phase 6.1 task.
 Update rule: retain historical App source reviews as borrowed evidence and record
 this Phase's independent Step reviews, exact commits, full checks and release separately.
 
 The human explicitly authorized Core Phase 2 and TFAF Phase 3 completion in this
-chat. Use `/Users/asami/src/Project2026/nict-editing-studio-app/.codex-workflow/checkouts/textus-flutter-core` on `codex/esa6-local-capture`; the original main checkout is
+chat. Use the [selected Core checkout](../..) on `codex/esa6-local-capture`; the original main checkout is
 read-only. The original App Goal, bases, epoch and review/repair history remain.
 This is adoption of existing connected implementation for owning-Phase acceptance,
 not acceptance inferred from the App's source reviews. No successor starts here.
@@ -111,7 +113,12 @@ accepted handoff is retained. TFAF runtime acceptance waits for Core Phase 2's
 public handoff; Core closure needs consumer evidence, not TFAF/App Phase closure.
 
 All three original Steps remain required. The private parent-owned plan selects
-exact disjoint commit paths and borrowed inputs for each Step. Public export and
+exact partitioned executable/source commit paths and borrowed inputs for each Step.
+The same two shared Phase progress documents, `docs/phase/phase-2.md` and
+`docs/phase/phase-2-checklist.md`, may be selected for staging in each owning Step
+to record truthful progress; the parent must retain the exact selected paths.
+TFC2-02 therefore has exactly 49 paths (original 47 plus these two), including
+its six-document authoring subset. The overall Core scope remains 80 paths. Public export and
 fixture handoff closes in the third Step. Intermediate local Step commits are
 not standalone package releases. Require all owning Steps before the distinct
 Phase release; do not move unreviewed dependency changes into an accepted handoff.
@@ -135,4 +142,29 @@ reserved for this Phase's release tree; App-only checks cannot substitute.
 No server implementation, Phase 5, AI follow-up or automatic public sharing is included.
 
 TFC2-01 evidence: `tfc2-01-owning-step-review-20261011@1`, PASS; exact
-Step commit pending. Later owning Step/full-Phase gates remain required.
+Step commit `cd9da12f7219c8096762f5c16f3f2f5bb3998a65`. The
+[predecessor journal](../journal/2026/10/2026-10-11-tfc2-01-acceptance.md) retains
+its historical precommit receipt; this current projection supersedes only its
+commit-pending status. The [TFC2-02 journal](../journal/2026/10/2026-10-11-tfc2-02-acceptance.md)
+records scoped execution evidence, protected owning review PASS and the pending commit.
+TFC2-03, full-package validation, comprehensive Core Phase review and distinct
+release remain required. Original bases, predecessor limits and all three Steps
+retain their admitted authority and contracts.
+
+## 2026-10-11 — Owning TFC2-02 acceptance before commit
+
+The parent completed the six-document intake and selected 49-path whitespace/link
+checks. Independent protected review `tfc2-02-owning-step-review-20261011@1`
+returned PASS over 49 owning and 84 selected paths, including all 34 target
+programs and five configuration inputs. Current blockers, Hygiene and Development
+Candidate findings were explicitly empty. The review inspected actual scoped
+RA3/375, later SQLite Q4/115, clean analysis, native 37-case and NC/NQ/ND results;
+it executed no product validation. Their controlled/native/synthetic limits remain.
+
+This dated receipt supersedes only earlier current-status implications; historical
+failures, authored-only receipts and their outcomes remain unchanged. The parent
+prepares the exact 49-path local Step commit. Its native outcome is still pending.
+This is no standalone package or whole-Phase release. TFC2-03, Core full-package
+validation/comprehensive Phase review/distinct release, TFAF Phase 3 and App
+Step/Phase/aggregate/release closure remain required. Existing contracts and source
+are unchanged by this factual bookkeeping; no new remote/server result is inferred.

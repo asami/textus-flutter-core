@@ -75,9 +75,8 @@ final class FileCaptureStore implements LocalCaptureStore {
   @override
   Future<Uint8List> readMaterial(CaptureMaterialReference reference) async {
     final id = _requireToken(reference.id, 'id');
-    final bytes = await File(
-      _child(_child(_root.path, 'materials'), '$id.bin'),
-    ).readAsBytes();
+    final bytes = await File(_child(_child(_root.path, 'materials'), '$id.bin'))
+        .readAsBytes();
     if (bytes.length != reference.byteLength) {
       throw FormatException('Original material length mismatch for $id');
     }
@@ -104,6 +103,7 @@ final class FileCaptureStore implements LocalCaptureStore {
   }
 
   /// Returns a fresh JSON object, null only for an absent file.
+  /// Absence is observed by this read; a later call may see a concurrent creation.
   /// Invalid tokens throw [ArgumentError]; corruption/nonobject JSON throws
   /// [FormatException]. Other IO errors propagate and the source stays intact.
   @override
@@ -116,8 +116,7 @@ final class FileCaptureStore implements LocalCaptureStore {
     try {
       contents = await file.readAsString();
     } on FileSystemException catch (error) {
-      if (_isMissingPath(error) && await FileSystemEntity.type(file.path) ==
-          FileSystemEntityType.notFound) {
+      if (_isMissingPath(error)) {
         return null;
       }
       rethrow;
@@ -131,6 +130,7 @@ final class FileCaptureStore implements LocalCaptureStore {
 
   /// Lists sorted safe tokens from final regular JSON files without parsing.
   /// An absent collection is empty; invalid tokens and IO failures throw.
+  /// Absence is observed by this listing; a later call may see new documents.
   @override
   Future<List<String>> listDocumentIds(String collection) async {
     final directory = _collectionDirectory(collection);
@@ -144,8 +144,7 @@ final class FileCaptureStore implements LocalCaptureStore {
         if (_isToken(id)) ids.add(id);
       }
     } on FileSystemException catch (error) {
-      if (_isMissingPath(error) && await FileSystemEntity.type(directory.path) ==
-          FileSystemEntityType.notFound) {
+      if (_isMissingPath(error)) {
         return <String>[];
       }
       rethrow;
@@ -154,17 +153,22 @@ final class FileCaptureStore implements LocalCaptureStore {
   }
 
   Directory _collectionDirectory(String collection) => Directory(
-    _child(_child(_root.path, 'documents'),
-        _requireToken(collection, 'collection')),
+    _child(
+      _child(_root.path, 'documents'),
+      _requireToken(collection, 'collection'),
+    ),
   );
 
   File _documentFile(String collection, String id) => File(
-    _child(_collectionDirectory(collection).path,
-        '${_requireToken(id, 'id')}.json'),
+    _child(
+      _collectionDirectory(collection).path,
+      '${_requireToken(id, 'id')}.json',
+    ),
   );
 
   String _newToken() => List<String>.generate(
-    32, (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    32,
+    (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
   ).join();
 
   Future<T> _enqueue<T>(Future<T> Function() write) {
@@ -239,7 +243,8 @@ Object? _snapshotJson(Object? value, Set<Object> ancestors) {
       return copy;
     }
     return (value as List)
-        .map((item) => _snapshotJson(item, ancestors)).toList();
+        .map((item) => _snapshotJson(item, ancestors))
+        .toList();
   } finally {
     ancestors.remove(value);
   }
