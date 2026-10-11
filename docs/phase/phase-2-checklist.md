@@ -1,12 +1,13 @@
 # Phase 2 Checklist - Background Transfer Runtime and State
 
-status=active
+status=closed
+closed_at=2026-10-11
 Owner: textus-flutter-core Phase 2.
 Plan: [Phase 2](phase-2.md).
-Only the explicitly evidenced entry/contract and accepted TFC2-01 item below
-are checked, along with independently accepted and committed TFC2-02.
-TFC2-03 independent owning review passed; its exact commit, whole behavioral
-acceptance, full-package validation, full review and Phase release remain pending.
+All three owning Steps are accepted and committed. The sole comprehensive
+review and the configuration-repair focused review passed. Complete package
+analysis and all 844 Flutter tests passed. The final projection is bound to
+the required distinct release and verified native closure receipt.
 
 ## Entry
 
@@ -28,39 +29,74 @@ acceptance, full-package validation, full review and Phase release remain pendin
 ## TFC2-03: Public handoff and consumer verification
 
 - [x] Provide fixtures, adapter evidence and accepted APIs to TFAF/app.
-- [ ] Record focused behavioral evidence, independent acceptance and the owning Step commit.
+- [x] Record focused behavioral evidence, independent acceptance and the owning Step commit.
 
 ## Behavioral acceptance
 
-- [ ] Inventory existing public storage/queue APIs and persisted state; freeze
+- [x] Inventory existing public storage/queue APIs and persisted state; freeze
       only missing bounded additions and the selected adapter/consumer contract.
-- [ ] Implement separate upload/submission state, dependency and result delivery
+- [x] Implement separate upload/submission state, dependency and result delivery
       through the public entry point; preserve existing consumers and saved data.
-- [ ] Implement targeted retry, partial failure and restart behavior, including
+- [x] Implement targeted retry, partial failure and restart behavior, including
       handling of unknown acknowledgement without assuming exactly-once delivery.
-- [ ] Supply controllable upload/submission fixtures through those same APIs.
-- [ ] Validate TFAF and the app against the accepted public handoff; record actual
+- [x] Supply controllable upload/submission fixtures through those same APIs.
+- [x] Validate TFAF and the app against the accepted public handoff; record actual
       Google Drive/storage adapter results separately from fake lifecycle evidence.
 
-- [ ] Cover both success paths, offline waiting, upload failure/dependent wait,
+- [x] Cover both success paths, offline waiting, upload failure/dependent wait,
       upload success/submission failure and targeted retry, partial upload,
       queued/running restart, no-upload content and indeterminate progress.
-- [ ] Prove that UI rebuild/navigation and submission retry do not repeat an
+- [x] Prove that UI rebuild/navigation and submission retry do not repeat an
       already successful upload for the same committed content.
-- [ ] Keep fake acceptance distinct from actual remote upload/submission; retain
+- [x] Keep fake acceptance distinct from actual remote upload/submission; retain
       local originals and do not claim Candidate formation from either result.
-- [ ] Run proportionate package analysis/tests and affected-consumer checks;
+- [x] Run proportionate package analysis/tests and affected-consumer checks;
       coordinate release validation with Phase 6.1 without declaring upstream
       obligations satisfied by app-only tests.
 
 ## Phase closure
 
-- [ ] All owned Steps and required consumer/adapter evidence accepted.
-- [ ] Complete package analysis and tests pass; app-only tests are insufficient.
-- [ ] One comprehensive Phase review closes all current blockers.
-- [ ] Publish the public API/UI handoff and separate actual from fake results.
-- [ ] Record closure in Phase, checklist, journal and index; create the distinct
-      Phase release commit through the normal execution workflow.
+- [x] All owned Steps and required consumer/adapter evidence accepted.
+- [x] Complete package analysis and tests pass; app-only tests are insufficient.
+- [x] One comprehensive Phase review closes all current blockers.
+- [x] Publish the public API/UI handoff and separate actual from fake results.
+- [x] Record closure in Phase, checklist, journal and index; bind the distinct
+      release to the required verified native closure receipt.
+
+## 2026-10-11 — Final Core Phase 2 closure projection
+
+All three owning Steps passed independent acceptance and were committed:
+TFC2-01 `cd9da12f7219c8096762f5c16f3f2f5bb3998a65`,
+TFC2-02 `95942a5c260adc37608f8b002284097e7b61f905`, and
+TFC2-03 `1b41b7073381ec56fba6428f46512928cae99a5c`.
+The sole comprehensive review `tfc2-full-review-20261011@1` passed at the
+original Phase epoch. Its final-validation publication warning was corrected
+by declaring `publish_to: none`; focused review
+`tfc2-phase-cycle1-focused-result-20261011@1` passed. One repair cycle was
+consumed and accepted; no second full review or new epoch was used.
+
+The actual complete `scripts/validate-full.sh` ran package analysis and all
+Flutter tests after that repair: analysis reported no issues; all 844 tests
+passed and the driver exited 0. Evidence:
+`tfc2-full-validation-after-cycle1-admission-20261011@1`. Middle stdout was
+tool-truncated; complete terminal success and the analyzer result were retained.
+The unsupported-database-version diagnostic belongs to the expected rejection
+scenario, whose assertions preserve the original future-version data.
+
+Public consumer evidence remains separately attributed: TFAF 234 selected
+checks, App controlled integration 100, handoff/mapper/service 72, and native
+37 policy cases. NC empty-queue, NQ authentication-required retry/reopen and ND
+68-byte synthetic transfer retain their recorded limits. No actual server,
+whole Book-media transfer, successful headless upload, physical radio/OS-stop
+experiment or long real human consent wait is claimed.
+
+This final management projection supersedes current pending statuses in the
+dated snapshots below; those snapshots preserve their original chronology.
+The distinct release is bound to `tfc2-phase2-closure-20261011@1`; Phase
+acceptance requires its successful native commit and verified closure receipt.
+The commit's own native identity is recorded by that receipt after creation.
+TFAF Phase 3 and App Phase 6.1 acceptance/full validation/releases remain
+separate obligations of the ongoing connected task. No successor starts here.
 
 ## Connected acceptance evidence — 2026-10-11
 

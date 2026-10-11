@@ -1,14 +1,61 @@
 # Phase 2 - Background Transfer Runtime and State
 
-status=active
+status=closed
+closed_at=2026-10-11
 planned_at=2026-10-10
 execution_owner=textus-flutter-core
 phase_owner=textus-flutter-core
 consumer_phase=nict-editing-studio-app Phase 6.1
-validation_ownership=standalone-full-owner
+split_full_test_policy=each-phase
+split_full_validation_method=local-driver-acceptance
+split_full_validation_driver=scripts/validate-full.sh
 predecessor=Phase 1.3 public workflow handoff
 execution_started=true
 related_steps=ESA6-06, ESA6-07, ESA6-08
+
+## 2026-10-11 — Final Core Phase 2 closure projection
+
+The explicit validation declarations above name the actual owning method:
+each Phase validates its own package with `scripts/validate-full.sh`. The
+earlier informal `standalone-full-owner` value was not a valid aggregate
+ownership declaration and is superseded here. No aggregate deferral, Phase
+split, ownership transfer or validation waiver is introduced; Core's actual
+844-test full-driver result remains the required evidence.
+
+
+
+All three owning Steps passed independent acceptance and were committed:
+TFC2-01 `cd9da12f7219c8096762f5c16f3f2f5bb3998a65`,
+TFC2-02 `95942a5c260adc37608f8b002284097e7b61f905`, and
+TFC2-03 `1b41b7073381ec56fba6428f46512928cae99a5c`.
+The sole comprehensive review `tfc2-full-review-20261011@1` passed at the
+original Phase epoch. Its final-validation publication warning was corrected
+by declaring `publish_to: none`; focused review
+`tfc2-phase-cycle1-focused-result-20261011@1` passed. One repair cycle was
+consumed and accepted; no second full review or new epoch was used.
+
+The actual complete `scripts/validate-full.sh` ran package analysis and all
+Flutter tests after that repair: analysis reported no issues; all 844 tests
+passed and the driver exited 0. Evidence:
+`tfc2-full-validation-after-cycle1-admission-20261011@1`. Middle stdout was
+tool-truncated; complete terminal success and the analyzer result were retained.
+The unsupported-database-version diagnostic belongs to the expected rejection
+scenario, whose assertions preserve the original future-version data.
+
+Public consumer evidence remains separately attributed: TFAF 234 selected
+checks, App controlled integration 100, handoff/mapper/service 72, and native
+37 policy cases. NC empty-queue, NQ authentication-required retry/reopen and ND
+68-byte synthetic transfer retain their recorded limits. No actual server,
+whole Book-media transfer, successful headless upload, physical radio/OS-stop
+experiment or long real human consent wait is claimed.
+
+This final management projection supersedes current pending statuses in the
+dated snapshots below; those snapshots preserve their original chronology.
+The distinct release is bound to `tfc2-phase2-closure-20261011@1`; Phase
+acceptance requires its successful native commit and verified closure receipt.
+The commit's own native identity is recorded by that receipt after creation.
+TFAF Phase 3 and App Phase 6.1 acceptance/full validation/releases remain
+separate obligations of the ongoing connected task. No successor starts here.
 
 ## Boundary
 
@@ -49,7 +96,7 @@ the existing app plan's KTL/Google Drive adapter is not a separate third stage.
 | --- | --- | --- | --- |
 | TFC2-01 | Public state and adapter contract | Freeze upload/submission identity, dependencies, persisted state and actions. | accepted; committed cd9da12 |
 | TFC2-02 | Execution and recovery | Implement durable execution, targeted retry, partial failure and restart. | accepted; committed 95942a5 |
-| TFC2-03 | Public handoff and consumer verification | Provide fixtures, adapter evidence and accepted APIs to TFAF/app. | owning review passed; exact commit pending |
+| TFC2-03 | Public handoff and consumer verification | Provide fixtures, adapter evidence and accepted APIs to TFAF/app. | accepted; committed 1b41b70 |
 
 ## Entry and validation
 
