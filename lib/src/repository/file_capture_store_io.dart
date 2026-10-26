@@ -14,7 +14,8 @@ import 'local_capture_store.dart';
 /// Writes use a flushed temporary file and atomic rename within the same
 /// directory. One instance serializes writes; separate instances use ordinary
 /// atomic replacement without an interprocess lock or transaction engine.
-final class FileCaptureStore implements LocalCaptureStore {
+final class FileCaptureStore
+    implements LocalCaptureStore, StreamingLocalCaptureStore {
   /// Configures this store's root; directories are created when saving.
   ///
   /// [directoryPath] belongs to the caller. Permission/path/IO errors propagate
@@ -81,6 +82,51 @@ final class FileCaptureStore implements LocalCaptureStore {
       throw FormatException('Original material length mismatch for $id');
     }
     return bytes;
+  }
+
+  @override
+  Stream<List<int>> openMaterial(
+    CaptureMaterialReference reference, {
+    int start = 0,
+    int? end,
+  }) async* {
+    final id = _requireToken(reference.id, 'id');
+    final limit = end ?? reference.byteLength;
+    if (start < 0 || limit < start || limit > reference.byteLength) {
+      throw ArgumentError('Invalid original material range.');
+    }
+    final file = File(_child(_child(_root.path, 'materials'), '$id.bin'));
+    try {
+    if (await FileSystemEntity.type(file.path, followLinks: false) !=
+        FileSystemEntityType.file) {
+      throw const FormatException('Original material is not a regular file.');
+    }
+    final reader = await file.open(mode: FileMode.read);
+    try {
+      if (await reader.length() != reference.byteLength) {
+        throw const FormatException('Original material length mismatch.');
+      }
+      await reader.setPosition(start);
+      var remaining = limit - start;
+      while (remaining > 0) {
+        final bytes = await reader.read(min(65536, remaining));
+        if (bytes.isEmpty) {
+          throw const FormatException('Original material range is truncated.');
+        }
+        remaining -= bytes.length;
+        yield bytes;
+      }
+      if (await reader.position() != limit ||
+          await reader.length() != reference.byteLength ||
+          await file.length() != reference.byteLength) {
+        throw const FormatException('Original material length changed.');
+      }
+    } finally {
+      await reader.close();
+    }
+    } on FileSystemException {
+      throw const FormatException('Retained original could not be read.');
+    }
   }
 
   /// Encodes a strict JSON snapshot before enqueueing atomic replacement.

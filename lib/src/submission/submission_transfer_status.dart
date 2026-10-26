@@ -1,6 +1,9 @@
 import '../capture/capture_material.dart';
+import 'registered_material_handoff_store.dart';
 import 'submission_json.dart' as j;
 import 'submission_record.dart';
+import 'tkl_material_delivery.dart';
+import 'tkl_material_delivery_codec.dart';
 
 /// Current caller observation; unknown conveys no network permission or liveness.
 enum SubmissionNetworkState { unknown, allowed, offline, policyBlocked }
@@ -98,12 +101,27 @@ final class SubmissionTransferOperationStatus {
 /// One immutable original and its actual reservation/receipt. Without a receipt
 /// the file is queued; no active file or file-specific failure is inferred.
 final class SubmissionFileTransferStatus {
-  const SubmissionFileTransferStatus._({
+  SubmissionFileTransferStatus._({
     required this.key,
     required this.original,
     required this.reservation,
     required this.receipt,
-  }) : state = receipt == null
+    this.lakeProgress,
+    this.directReceipt,
+  }) : state = directReceipt != null
+           ? SubmissionTransferOperationState.succeeded
+           : lakeProgress != null
+           ? switch (lakeProgress.state) {
+               TklOriginalTransferState.uploaded =>
+                 SubmissionTransferOperationState.succeeded,
+               TklOriginalTransferState.transferring =>
+                 SubmissionTransferOperationState.running,
+               TklOriginalTransferState.reconciliationRequired =>
+                 SubmissionTransferOperationState.outcomeUnknown,
+               TklOriginalTransferState.pending =>
+                 SubmissionTransferOperationState.queued,
+             }
+           : receipt == null
            ? SubmissionTransferOperationState.queued
            : SubmissionTransferOperationState.succeeded;
 
@@ -119,6 +137,12 @@ final class SubmissionFileTransferStatus {
   /// Actual successful upload receipt, null until acknowledged by storage.
   final SubmissionMaterialReceipt? receipt;
 
+  /// Actual TKL resource observation; distinct from a legacy Drive receipt.
+  final TklOriginalTransferProgress? lakeProgress;
+
+  /// Provider completion can precede independent TKL confirmation.
+  final TklDirectUploadReceipt? directReceipt;
+
   /// Succeeded exactly when a storage receipt exists; otherwise queued.
   final SubmissionTransferOperationState state;
 
@@ -128,9 +152,44 @@ final class SubmissionFileTransferStatus {
       key == other.key &&
       original == other.original &&
       reservation == other.reservation &&
-      receipt == other.receipt;
+      receipt == other.receipt &&
+      directReceipt == other.directReceipt &&
+      (
+            lakeProgress?.resourceId,
+            lakeProgress?.mediaType,
+            lakeProgress?.byteLength,
+            lakeProgress?.state,
+            lakeProgress?.contentDigest,
+            lakeProgress?.verificationState,
+            lakeProgress?.verificationAttempts,
+            lakeProgress?.verificationReason,
+          ) ==
+          (
+            other.lakeProgress?.resourceId,
+            other.lakeProgress?.mediaType,
+            other.lakeProgress?.byteLength,
+            other.lakeProgress?.state,
+            other.lakeProgress?.contentDigest,
+            other.lakeProgress?.verificationState,
+            other.lakeProgress?.verificationAttempts,
+            other.lakeProgress?.verificationReason,
+          );
   @override
-  int get hashCode => Object.hash(key, original, reservation, receipt);
+  int get hashCode => Object.hash(
+    key,
+    original,
+    reservation,
+    receipt,
+    directReceipt,
+    lakeProgress?.resourceId,
+    lakeProgress?.mediaType,
+    lakeProgress?.byteLength,
+    lakeProgress?.state,
+    lakeProgress?.contentDigest,
+    lakeProgress?.verificationState,
+    lakeProgress?.verificationAttempts,
+    lakeProgress?.verificationReason,
+  );
 }
 
 /// Pure immutable two-operation presentation. Construction performs no IO,
@@ -152,6 +211,12 @@ final class SubmissionTransferStatus {
     required Set<SubmissionTransferAction> actions,
     required this.acknowledgementUncertain,
     required this.acknowledgement,
+    this.usesLakeDelivery = false,
+    this.registration,
+    this.preparation,
+    this.verification,
+    this.tklProgress,
+    this.studioHandoff,
   }) : files = List<SubmissionFileTransferStatus>.unmodifiable(files),
        actions = Set<SubmissionTransferAction>.unmodifiable(actions);
 
@@ -164,8 +229,18 @@ final class SubmissionTransferStatus {
     SubmissionNetworkState networkState = SubmissionNetworkState.unknown,
     SubmissionReferenceAccessState referenceAccessState =
         SubmissionReferenceAccessState.unknown,
+    RegisteredMaterialHandoffRecord? handoff,
   }) {
     final observed = observedAt.toUtc();
+    if (handoff != null &&
+        (record.request.tklDelivery == null ||
+         handoff.sourceRequest != record.request ||
+         record.state != SubmissionState.materialRegistered)) {
+      throw ArgumentError('Studio handoff does not match its Registered source');
+    }
+    if (record.request.tklDelivery != null) {
+      return _fromTkl(record, observed, networkState, handoff);
+    }
     final total = record.request.materials.length;
     final completed = record.receipts.length;
     final allUploaded = total == completed;
@@ -300,6 +375,154 @@ final class SubmissionTransferStatus {
     );
   }
 
+  static SubmissionTransferStatus _fromTkl(
+    SubmissionRecord record,
+    DateTime observed,
+    SubmissionNetworkState network,
+    RegisteredMaterialHandoffRecord? handoff,
+  ) {
+    final progress = record.tklProgress;
+    final resources = {
+      for (final resource
+          in progress?.resources ?? <TklOriginalTransferProgress>[])
+        resource.resourceId: resource,
+    };
+    final total = record.request.materials.length;
+    final completed = resources.values
+        .where(
+          (resource) =>
+              resource.state == TklOriginalTransferState.uploaded ||
+              record.directReceipts.containsKey(resource.resourceId),
+        )
+        .length;
+    final claimed = record.state == SubmissionState.submitting;
+    final active = claimed && record.leaseExpiresAt!.isAfter(observed);
+    final waiting = switch (network) {
+      SubmissionNetworkState.offline =>
+        SubmissionTransferWaitingReason.networkUnavailable,
+      SubmissionNetworkState.policyBlocked =>
+        SubmissionTransferWaitingReason.policyBlocked,
+      _ =>
+        claimed && !active
+            ? SubmissionTransferWaitingReason.leaseRecovery
+            : record.nextAttemptAt?.isAfter(observed) == true
+            ? SubmissionTransferWaitingReason.retryScheduled
+            : null,
+    };
+    final uncertain =
+        progress?.state == TklMaterialDeliveryState.reconciliationRequired ||
+        record.lastFailure?.code == 'lakeOutcomeUnknown';
+    final state = uncertain
+        ? SubmissionTransferOperationState.outcomeUnknown
+        : active
+        ? SubmissionTransferOperationState.running
+        : record.lastFailure != null
+        ? SubmissionTransferOperationState.failed
+        : waiting != null
+        ? SubmissionTransferOperationState.waiting
+        : SubmissionTransferOperationState.queued;
+    final registration = record.state == SubmissionState.materialRegistered
+        ? SubmissionTransferOperationStatus._(
+            state: SubmissionTransferOperationState.succeeded,
+            completedAt: record.updatedAt,
+          )
+        : SubmissionTransferOperationStatus._(
+            state: state,
+            waitingReason: waiting,
+            failure: record.lastFailure,
+            nextAttemptAt: record.nextAttemptAt,
+            leaseExpiresAt: record.leaseExpiresAt,
+          );
+    final prepared = record.tklContentDigests.length;
+    final hasVerification = resources.values.any((r) => r.contentDigest != null);
+    final verified = resources.values.where(
+      (r) => r.verificationState == TklOriginalVerificationState.verified,
+    ).length;
+    final terminalIntegrity = {'integrityMismatch', 'verificationUnavailable',
+      'integrityUpgradeRequired'}.contains(record.lastFailure?.code);
+    return SubmissionTransferStatus._(
+      requestId: record.request.id,
+      kind: record.request.kind,
+      subjectId: record.request.subjectId,
+      updatedAt: record.updatedAt,
+      observedAt: observed,
+      storageConnectionId: null,
+      transportConnectionId: record.request.transportConnectionId,
+      usesLakeDelivery: true,
+      tklProgress: progress,
+      registration: registration,
+      preparation: SubmissionTransferOperationStatus._(
+        state: total == 0 ? SubmissionTransferOperationState.notRequired
+            : prepared == total ? SubmissionTransferOperationState.succeeded
+            : state,
+        completedCount: prepared, totalCount: total,
+        waitingReason: prepared == total ? null : waiting,
+        failure: prepared == total ? null : record.lastFailure,
+        leaseExpiresAt: prepared == total ? null : record.leaseExpiresAt,
+      ),
+      verification: !hasVerification ? null : SubmissionTransferOperationStatus._(
+        state: verified == total ? SubmissionTransferOperationState.succeeded
+            : progress?.state == TklMaterialDeliveryState.verificationFailed
+            ? SubmissionTransferOperationState.failed : state,
+        completedCount: verified, totalCount: total,
+        waitingReason: verified == total ? null : waiting,
+        failure: verified == total ? null : record.lastFailure,
+        leaseExpiresAt: verified == total ? null : record.leaseExpiresAt,
+      ),
+      upload: SubmissionTransferOperationStatus._(
+        state: total == 0
+            ? SubmissionTransferOperationState.notRequired
+            : completed == total
+            ? SubmissionTransferOperationState.succeeded
+            : state,
+        completedCount: completed,
+        totalCount: total,
+        waitingReason: completed == total ? null : waiting,
+        failure: completed == total ? null : record.lastFailure,
+      ),
+      submission: handoff == null
+          ? const SubmissionTransferOperationStatus._(
+              state: SubmissionTransferOperationState.notRequired)
+          : SubmissionTransferOperationStatus._(
+              state: switch (handoff.state) {
+                RegisteredMaterialHandoffState.pending => SubmissionTransferOperationState.queued,
+                RegisteredMaterialHandoffState.sending =>
+                  handoff.leaseExpiresAt!.isAfter(observed)
+                    ? SubmissionTransferOperationState.running
+                    : SubmissionTransferOperationState.outcomeUnknown,
+                RegisteredMaterialHandoffState.outcomeUnknown => SubmissionTransferOperationState.outcomeUnknown,
+                RegisteredMaterialHandoffState.failed => SubmissionTransferOperationState.failed,
+                RegisteredMaterialHandoffState.accepted => SubmissionTransferOperationState.succeeded,
+              },
+              leaseExpiresAt: handoff.leaseExpiresAt,
+              completedAt: handoff.acknowledgement?.receivedAt,
+            ),
+      files: [
+        for (final material in record.request.materials)
+          SubmissionFileTransferStatus._(
+            key: material.key,
+            original: material.original,
+            reservation: null,
+            receipt: null,
+            lakeProgress: resources[material.key],
+            directReceipt: record.directReceipts[material.key],
+          ),
+      ],
+      actions: {
+        if (!terminalIntegrity && record.state == SubmissionState.submissionFailed)
+          SubmissionTransferAction.retry,
+        if (!terminalIntegrity && (record.state == SubmissionState.readyToSubmit ||
+            (claimed && !active)))
+          SubmissionTransferAction.requestRun,
+      },
+      acknowledgementUncertain: handoff?.state == RegisteredMaterialHandoffState.outcomeUnknown ||
+          (handoff?.state == RegisteredMaterialHandoffState.sending &&
+              !handoff!.leaseExpiresAt!.isAfter(observed)),
+      acknowledgement: handoff?.acknowledgement,
+      studioHandoff: handoff,
+    );
+  }
+
   /// Exact immutable request identity, suitable for navigation and wake/retry.
   final String requestId;
 
@@ -339,6 +562,21 @@ final class SubmissionTransferStatus {
   /// Exact matching server acceptance, null until submitted.
   final SubmissionAcknowledgement? acknowledgement;
 
+  /// Explicit TKL route; Studio receipt remains independent and absent.
+  final bool usesLakeDelivery;
+  final SubmissionTransferOperationStatus? registration;
+
+  /// Actual immutable digest checkpoints; no byte percentage is inferred.
+  final SubmissionTransferOperationStatus? preparation;
+
+  /// Actual server verification count; null when no integrity proof is reported.
+  final SubmissionTransferOperationStatus? verification;
+  final TklMaterialDeliverySnapshot? tklProgress;
+
+  /// Separate frozen Studio destination/lifecycle and actual ACK, when supplied.
+  /// The original TKL record and its transport identity remain authoritative.
+  final RegisteredMaterialHandoffRecord? studioHandoff;
+
   @override
   bool operator ==(Object other) =>
       other is SubmissionTransferStatus &&
@@ -355,7 +593,20 @@ final class SubmissionTransferStatus {
       actions.length == other.actions.length &&
       actions.containsAll(other.actions) &&
       acknowledgementUncertain == other.acknowledgementUncertain &&
-      acknowledgement == other.acknowledgement;
+      acknowledgement == other.acknowledgement &&
+      usesLakeDelivery == other.usesLakeDelivery &&
+      registration == other.registration &&
+      preparation == other.preparation &&
+      verification == other.verification &&
+      studioHandoff == other.studioHandoff &&
+      j.deepEquals(
+        tklProgress == null
+            ? null
+            : TklMaterialDeliveryCodec.snapshotToJson(tklProgress!),
+        other.tklProgress == null
+            ? null
+            : TklMaterialDeliveryCodec.snapshotToJson(other.tklProgress!),
+      );
   @override
   int get hashCode => Object.hash(
     requestId,
@@ -371,5 +622,15 @@ final class SubmissionTransferStatus {
     Object.hashAllUnordered(actions),
     acknowledgementUncertain,
     acknowledgement,
+    usesLakeDelivery,
+    registration,
+    preparation,
+    verification,
+    studioHandoff,
+    j.deepHash(
+      tklProgress == null
+          ? null
+          : TklMaterialDeliveryCodec.snapshotToJson(tklProgress!),
+    ),
   );
 }

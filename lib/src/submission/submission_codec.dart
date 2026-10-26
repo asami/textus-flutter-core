@@ -3,6 +3,8 @@ import 'submission_adapters.dart';
 import 'submission_json.dart' as j;
 import 'submission_record.dart';
 import 'submission_request.dart';
+import 'tkl_material_delivery_codec.dart';
+import 'tkl_original_content.dart';
 
 /// Exact request/packet v1 and record v2 schemas, with detached output JSON.
 /// Exact legacy record v1 remains readable without rewriting persistence.
@@ -11,7 +13,7 @@ import 'submission_request.dart';
 abstract final class SubmissionCodec {
   /// Encodes the complete immutable request, including its local document.
   static Map<String, Object?> requestToJson(SubmissionRequest value) => {
-    'version': 1,
+    'version': value.tklDelivery == null ? 1 : 2,
     'id': value.id,
     'kind': value.kind,
     'subjectId': value.subjectId,
@@ -22,11 +24,17 @@ abstract final class SubmissionCodec {
     'transportConnectionId': value.transportConnectionId,
     'storageConnectionId': value.storageConnectionId,
     'extensions': j.detach(value.extensions),
+    if (value.tklDelivery != null)
+      'tklDelivery': TklMaterialDeliveryCodec.requestToJson(value.tklDelivery!),
   };
 
   /// Decodes exactly version 1 and snapshots all nested JSON.
   static SubmissionRequest requestFromJson(Map<String, Object?> json) =>
       j.decode(() {
+        final version = j.integer(json['version']);
+        if (version != 1 && version != 2) {
+          throw const FormatException('Unsupported submission request version');
+        }
         final v = j.exact(json, {
           'version',
           'id',
@@ -39,8 +47,8 @@ abstract final class SubmissionCodec {
           'transportConnectionId',
           'storageConnectionId',
           'extensions',
+          if (version == 2) 'tklDelivery',
         });
-        j.version(v);
         return SubmissionRequest(
           id: j.string(v['id']),
           kind: j.string(v['kind']),
@@ -55,12 +63,21 @@ abstract final class SubmissionCodec {
           transportConnectionId: j.string(v['transportConnectionId']),
           storageConnectionId: j.nullableString(v['storageConnectionId']),
           extensions: j.object(v['extensions']),
+          tklDelivery: version == 1
+              ? null
+              : TklMaterialDeliveryCodec.requestFromJson(v['tklDelivery']),
         );
       });
 
   /// Encodes all nullable keys, complete history and checkpoints of a record.
   static Map<String, Object?> recordToJson(SubmissionRecord value) => {
-    'version': 2,
+    'version': value.tklContentDigests.isNotEmpty
+        ? 5
+        : value.request.tklDelivery == null
+        ? 2
+        : value.directReceipts.isEmpty
+        ? 3
+        : 4,
     'request': requestToJson(value.request),
     'state': value.state.name,
     'claimCount': value.claimCount,
@@ -76,9 +93,23 @@ abstract final class SubmissionCodec {
       for (final e in value.receipts.entries) e.key: receiptToJson(e.value),
     },
     'failureHistory': value.failureHistory.map(failureToJson).toList(),
+    if (value.tklContentDigests.isNotEmpty)
+      'tklContentDigests': {
+        for (final entry in value.tklContentDigests.entries)
+          entry.key: entry.value.toJson(),
+      },
+    if (value.directReceipts.isNotEmpty || value.tklContentDigests.isNotEmpty)
+      'directReceipts': {
+        for (final entry in value.directReceipts.entries)
+          entry.key: TklMaterialDeliveryCodec.directReceiptToJson(entry.value),
+      },
     'acknowledgement': value.acknowledgement == null
         ? null
         : acknowledgementToJson(value.acknowledgement!),
+    if (value.request.tklDelivery != null)
+      'tklProgress': value.tklProgress == null
+          ? null
+          : TklMaterialDeliveryCodec.snapshotToJson(value.tklProgress!),
     'transportCheckpoint': value.transportCheckpoint == null
         ? null
         : {
@@ -93,7 +124,7 @@ abstract final class SubmissionCodec {
   static SubmissionRecord recordFromJson(Map<String, Object?> json) =>
       j.decode(() {
         final version = j.integer(json['version']);
-        if (version != 1 && version != 2) {
+        if (version != 1 && version != 2 && version != 3 && version != 4 && version != 5) {
           throw const FormatException('Unsupported submission record version');
         }
         final v = j.exact(json, {
@@ -109,9 +140,18 @@ abstract final class SubmissionCodec {
           'receipts',
           'failureHistory',
           'acknowledgement',
-          if (version == 2) 'transportCheckpoint',
+          if (version >= 2) 'transportCheckpoint',
+          if (version >= 3) 'tklProgress',
+          if (version >= 4) 'directReceipts',
+          if (version == 5) 'tklContentDigests',
         });
+        if (version == 5 && j.object(v['tklContentDigests']).isEmpty) {
+          throw const FormatException('V5 requires a retained content expectation');
+        }
         final request = requestFromJson(j.object(v['request']));
+        if ((version >= 3) != (request.tklDelivery != null)) {
+          throw const FormatException('Invalid TKL queue record version');
+        }
         final state = j.enumeration(v['state'], SubmissionState.values);
         final claimCount = j.integer(v['claimCount']);
         final receipts = {
@@ -158,6 +198,18 @@ abstract final class SubmissionCodec {
               e.key: reservationFromJson(j.object(e.value)),
           },
           receipts: receipts,
+          tklContentDigests: version < 5 ? const {} : {
+            for (final entry in j.object(v['tklContentDigests']).entries)
+              entry.key: TklContentDigest.fromJson(entry.value),
+          },
+          directReceipts: version < 4
+              ? const {}
+              : {
+                  for (final entry in j.object(v['directReceipts']).entries)
+                    entry.key: TklMaterialDeliveryCodec.directReceiptFromJson(
+                      entry.value,
+                    ),
+                },
           failureHistory: j
               .array(v['failureHistory'])
               .map((f) => failureFromJson(j.object(f)))
@@ -166,6 +218,9 @@ abstract final class SubmissionCodec {
               ? null
               : acknowledgementFromJson(j.object(v['acknowledgement'])),
           transportCheckpoint: checkpoint,
+          tklProgress: v['tklProgress'] == null
+              ? null
+              : TklMaterialDeliveryCodec.snapshotFromJson(v['tklProgress']),
         );
       });
 

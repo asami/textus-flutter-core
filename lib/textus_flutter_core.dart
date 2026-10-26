@@ -51,6 +51,13 @@ export 'src/repository/file_capture_store.dart';
 
 // Durable explicit submission intent, resumable checkpoints and borrowed ports.
 export 'src/submission/submission_request.dart';
+export 'src/submission/registered_material_submission.dart';
+export 'src/submission/registered_material_submission_codec.dart';
+export 'src/submission/registered_material_handoff_store.dart';
+export 'src/submission/registered_material_handoff_service.dart';
+export 'src/submission/tkl_material_delivery.dart';
+export 'src/submission/tkl_original_content.dart';
+export 'src/submission/tkl_material_delivery_http_client.dart';
 export 'src/submission/submission_record.dart';
 export 'src/submission/submission_transfer_status.dart';
 export 'src/submission/submission_codec.dart';

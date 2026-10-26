@@ -7,12 +7,15 @@ import 'android_submission_background.dart';
 import 'android_submission_configuration.dart';
 import 'drive_submission_storage_adapter.dart';
 import 'http_submission_transport.dart';
+import 'registered_material_handoff_service.dart';
+import 'registered_material_handoff_store.dart';
 import 'sqlite_submission_queue_store.dart';
 import 'submission_adapters.dart';
 import 'submission_queue_store.dart';
 import 'submission_reference_access.dart';
 import 'submission_run_lifetime.dart';
 import 'submission_service.dart';
+import 'tkl_material_delivery_http_client.dart';
 
 /// Caller-owned service/queue composition. A runner only borrows these resources.
 final class SubmissionBackgroundResources {
@@ -54,6 +57,7 @@ Future<SubmissionBackgroundResources> openDefaultAndroidSubmissionResources({
   final configuration = AndroidSubmissionConfigurationStore();
   SubmissionQueueStore? queue;
   SubmissionService? service;
+  RegisteredMaterialHandoffService? handoffs;
   http.Client? client;
   AndroidSubmissionBackgroundScheduler? ownedScheduler;
   Future<void>? closeFuture;
@@ -83,6 +87,7 @@ Future<SubmissionBackgroundResources> openDefaultAndroidSubmissionResources({
     }
 
     await attempt(closeClient);
+    if (handoffs != null) await attempt(handoffs.close);
     if (service != null) await attempt(service.close);
     if (queue != null) await attempt(queue.close);
     await attempt(configuration.close);
@@ -111,13 +116,43 @@ Future<SubmissionBackgroundResources> openDefaultAndroidSubmissionResources({
     );
     final wake =
         scheduler ?? (ownedScheduler = AndroidSubmissionBackgroundScheduler());
+    final transports = {
+      for (final connection in snapshot.httpConnections)
+        connection.id: HttpSubmissionTransport(
+          connection: connection, client: client, credentials: configuration,
+          isRunCurrent: () => lifetime.isCurrent, cancellation: lifetime.cancelled,
+        ),
+    };
+    final handoffStore = queue;
+    if (handoffStore is! RegisteredMaterialHandoffStore) {
+      throw StateError('Default queue lacks registered Material handoff storage');
+    }
+    handoffs = RegisteredMaterialHandoffService(
+      queue: queue, store: handoffStore as RegisteredMaterialHandoffStore,
+      transports: transports, scheduler: wake,
+    );
     service = SubmissionService(
       queue: queue,
       materials: materials,
       scheduler: wake,
+      registeredMaterialHandoffs: handoffs,
       referenceAccessPolicy: ConfiguredSubmissionReferenceAccessPolicy(
         configuration: configuration,
       ),
+      tklClients: {
+        for (final connection in snapshot.httpConnections.where(
+          (connection) =>
+              connection.requiresBearerToken &&
+              connection.endpoint.path.endsWith('/'),
+        ))
+          connection.id: TklMaterialDeliveryHttpClient(
+            connection: connection,
+            client: client,
+            credentials: configuration,
+            isRunCurrent: () => lifetime.isCurrent,
+            cancellation: lifetime.cancelled,
+          ),
+      },
       storageAdapters: {
         for (final connection in snapshot.driveConnections)
           connection.id: DriveSubmissionStorageAdapter(
@@ -128,16 +163,7 @@ Future<SubmissionBackgroundResources> openDefaultAndroidSubmissionResources({
             cancellation: lifetime.cancelled,
           ),
       },
-      transports: {
-        for (final connection in snapshot.httpConnections)
-          connection.id: HttpSubmissionTransport(
-            connection: connection,
-            client: client,
-            credentials: configuration,
-            isRunCurrent: () => lifetime.isCurrent,
-            cancellation: lifetime.cancelled,
-          ),
-      },
+      transports: transports,
     );
     current();
     return SubmissionBackgroundResources(

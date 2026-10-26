@@ -858,7 +858,8 @@ void main() {
           final persisted = Map<String, Object?>.from(
             jsonDecode(row['body']! as String) as Map,
           );
-          // Then actual transition preserves identity/history/schema and historical uncertainty.
+          // Then actual transition preserves identity/history and the additive database v2
+          // schema established by public open, while old record-v1 values stay exact.
           expect(claimed!.request, decoded.request);
           expect(claimed.failureHistory, decoded.failureHistory);
           expect(claimed.receipts, decoded.receipts);
@@ -868,7 +869,7 @@ void main() {
           expect(persisted.containsKey('transportCheckpoint'), isTrue);
           expect(SubmissionCodec.recordFromJson(persisted), claimed);
           expect(await raw.rawQuery('PRAGMA user_version'), [
-            {'user_version': 1},
+            {'user_version': 2},
           ]);
           expect(
             await raw.query(

@@ -23,6 +23,150 @@ void main() {
     // Then persisted production data and borrowed resources are untouched.
   });
 
+  group('TKL immutable retained-content checkpoint', () {
+    test('one local digest is durable idempotent and fenced across native SQLite reopening', () async {
+      // Given an accepted TKL request and a current lease on the native queue.
+      var queue = await f.openQueue();
+      final request = _integrityRequest(await f.request(document: {
+        'opaque': [null, {'literal_key': '窯変', 'context': null}],
+      }));
+      await queue.enqueue(request);
+      await queue.claimNext(now: f.now, leaseToken: 'ownerA',
+        leaseDuration: const Duration(minutes: 5));
+      final digest = _digest('a');
+      // When the first actual original expectation is saved before any remote progress.
+      final saved = await queue.saveTklContentDigest(id: request.id,
+        leaseToken: 'ownerA', key: 'photo', digest: digest, now: f.now);
+      // Then V5 contains empty progress/receipt checkpoints and exact immutable accepted JSON.
+      final json = SubmissionCodec.recordToJson(saved);
+      expect(json['version'], 5);
+      expect(json['tklProgress'], isNull);
+      expect(json['directReceipts'], isEmpty);
+      expect(saved.request, request);
+      expect(SubmissionCodec.recordFromJson(json), saved);
+      expect(() => saved.tklContentDigests.clear(), throwsUnsupportedError);
+      // When equal, changed and unknown-key duplicates are attempted under that lease.
+      expect(await queue.saveTklContentDigest(id: request.id, leaseToken: 'ownerA',
+        key: 'photo', digest: digest, now: f.now.add(const Duration(seconds: 1))), saved);
+      await expectLater(queue.saveTklContentDigest(id: request.id, leaseToken: 'ownerA',
+        key: 'photo', digest: _digest('b'), now: f.now), throwsStateError);
+      await expectLater(queue.saveTklContentDigest(id: request.id, leaseToken: 'ownerA',
+        key: 'unknown', digest: digest, now: f.now), throwsStateError);
+      // Then failures do not replace the retained expectation or original request.
+      expect(await queue.find(request.id), saved);
+      await queue.close();
+      // When the queue reopens and the expired owner loses to a new lease.
+      queue = await f.openQueue();
+      expect(await queue.find(request.id), saved);
+      f.now = f.now.add(const Duration(minutes: 6));
+      final claimed = await queue.claimNext(now: f.now, leaseToken: 'ownerB',
+        leaseDuration: const Duration(minutes: 5));
+      await expectLater(queue.saveTklContentDigest(id: request.id, leaseToken: 'ownerA',
+        key: 'audio', digest: digest, now: f.now), throwsA(isA<SubmissionLeaseLostException>()));
+      // Then a stale owner cannot alter the new claim or its durable expectations.
+      expect(await queue.find(request.id), claimed);
+      expect(claimed!.tklContentDigests, {'photo': digest});
+      expect(claimed.request.document, request.document);
+    });
+
+    test('non-TKL originals cannot acquire a TKL digest checkpoint', () async {
+      // Given an ordinary legacy request under a valid native queue lease.
+      final queue = await f.openQueue();
+      final request = await f.request();
+      await queue.enqueue(request);
+      final claimed = await queue.claimNext(now: f.now, leaseToken: 'owner',
+        leaseDuration: const Duration(minutes: 5));
+      // When a TKL expectation is offered to the unrelated original route.
+      await expectLater(queue.saveTklContentDigest(id: request.id, leaseToken: 'owner',
+        key: 'photo', digest: _digest('a'), now: f.now), throwsStateError);
+      // Then the ordinary queued original and claim remain unchanged.
+      expect(await queue.find(request.id), claimed);
+    });
+
+    test('server expectations verification and attempt counts cannot change or regress', () async {
+      // Given both actual local expectations and a server-verified first original.
+      final queue = await f.openQueue();
+      final request = _integrityRequest(await f.request());
+      await queue.enqueue(request);
+      await queue.claimNext(now: f.now, leaseToken: 'owner',
+        leaseDuration: const Duration(minutes: 5));
+      for (final material in request.materials) {
+        await queue.saveTklContentDigest(id: request.id, leaseToken: 'owner',
+          key: material.key, digest: _digest('a'), now: f.now);
+      }
+      TklMaterialDeliverySnapshot snapshot({
+        TklContentDigest? firstDigest, int attempts = 2,
+        TklOriginalVerificationState firstState = TklOriginalVerificationState.verified,
+        bool complete = false, bool omitProof = false,
+      }) => TklMaterialDeliverySnapshot(
+        deliveryRef: 'delivery', requestId: request.id, revision: 2,
+        destinationId: 'selected', destinationLabel: 'Selected',
+        state: complete ? TklMaterialDeliveryState.readyToRegister : TklMaterialDeliveryState.transferring,
+        resources: [for (var i = 0; i < request.materials.length; i++)
+          TklOriginalTransferProgress(resourceId: request.materials[i].key,
+            mediaType: request.materials[i].original.mediaType,
+            byteLength: request.materials[i].original.byteLength,
+            state: i == 0 || complete ? TklOriginalTransferState.uploaded : TklOriginalTransferState.pending,
+            contentDigest: omitProof ? null : i == 0 ? firstDigest ?? _digest('a') : _digest('a'),
+            verificationState: omitProof ? null : i == 0 ? firstState
+                : complete ? TklOriginalVerificationState.verified : TklOriginalVerificationState.pending,
+            verificationAttempts: omitProof ? null : i == 0 ? attempts : complete ? 1 : 0,
+          ),
+        ],
+      );
+      final saved = await queue.saveTklProgress(id: request.id, leaseToken: 'owner',
+        progress: snapshot(), now: f.now);
+      // When a changed expectation, lost verified state, fewer checks or absent proof is returned.
+      for (final invalid in [snapshot(firstDigest: _digest('b')),
+        snapshot(firstState: TklOriginalVerificationState.verifying),
+        snapshot(attempts: 1), snapshot(complete: true, omitProof: true)]) {
+        await expectLater(queue.saveTklProgress(id: request.id, leaseToken: 'owner',
+          progress: invalid, now: f.now), throwsA(anyOf(isA<StateError>(), isA<ArgumentError>())));
+        // Then the verified sibling, attempts and accepted expectations remain durable.
+        expect(await queue.find(request.id), saved);
+      }
+      // When complete bound proof arrives for both retained originals.
+      final ready = await queue.saveTklProgress(id: request.id, leaseToken: 'owner',
+        progress: snapshot(complete: true), now: f.now);
+      // Then readiness is accepted without inventing a Studio acknowledgement.
+      expect(ready.tklProgress!.state, TklMaterialDeliveryState.readyToRegister);
+      expect(ready.acknowledgement, isNull);
+    });
+
+    test('record versions one through five retain nullable opaque accepted contexts', () async {
+      // Given a legacy ready request and the same JSON carried into a TKL request.
+      final legacy = await f.request(withMaterials: false, document: {
+        'literal_context': [null, {'contentDigest': null, 'snake_case': ' 原文 '}],
+      });
+      final queue = await f.openQueue();
+      final original = await queue.enqueue(legacy);
+      final v2 = SubmissionCodec.recordToJson(original);
+      final v1 = {...v2, 'version': 1}..remove('transportCheckpoint');
+      // When exact legacy schemas are decoded.
+      // Then both preserve the original accepted nulls and opaque keys.
+      expect(SubmissionCodec.recordFromJson(v1), original);
+      expect(SubmissionCodec.recordFromJson(v2), original);
+      final request = _integrityRequest(await f.request(id: 'integrity', subjectId: 'other',
+        document: legacy.document));
+      await queue.enqueue(request);
+      final ready = (await queue.find(request.id))!;
+      final v3 = SubmissionCodec.recordToJson(ready);
+      final v4 = {...v3, 'version': 4, 'directReceipts': <String, Object?>{}};
+      expect(SubmissionCodec.recordFromJson(v3), ready);
+      expect(SubmissionCodec.recordFromJson(v4), ready);
+      // When one actual original expectation upgrades only its record checkpoint to V5.
+      await queue.claimNext(now: f.now, leaseToken: 'holdLegacy', leaseDuration: const Duration(hours: 1));
+      await queue.claimNext(now: f.now, leaseToken: 'owner', leaseDuration: const Duration(minutes: 5));
+      final checkpoint = await queue.saveTklContentDigest(id: request.id,
+        leaseToken: 'owner', key: 'photo', digest: _digest('a'), now: f.now);
+      // Then exact V5 round trip retains contexts, intent and an independent empty server projection.
+      expect(SubmissionCodec.recordFromJson(SubmissionCodec.recordToJson(checkpoint)), checkpoint);
+      expect(checkpoint.request.document, legacy.document);
+      expect(checkpoint.tklProgress, isNull);
+      expect(checkpoint.directReceipts, isEmpty);
+    });
+  });
+
   test(
     'Q2 independent duplicate enqueue and immutable subject uniqueness',
     () async {
@@ -647,24 +791,24 @@ void main() {
   });
 
   test('Q4 unsupported database version and close preserve the owned file', () async {
-    // Given a test-owned future schema database and a separately opened queue.
+    // Given a test-owned future schema 3 database and a separately opened queue.
     final path = '${f.directory.path}/unsupported.sqlite';
     final raw = await databaseFactoryFfi.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 3,
         singleInstance: false,
         onCreate: (db, version) async {
           // Given a future schema marker owned by this test.
           // When SQLite creates it, preserve a detectable source value.
           await db.execute('CREATE TABLE future_data (value TEXT)');
           await db.insert('future_data', {'value': 'retained'});
-          // Then opening version 1 must not reset/drop this source.
+          // Then opening the current version 2 store must not reset/drop this source.
         },
       ),
     );
     await raw.close();
-    // When the version 1 store tries opening a future database.
+    // When the current version 2 store tries opening the future version 3 database.
     await expectLater(
       SqliteSubmissionQueueStore.open(path, factory: databaseFactoryFfi),
       throwsFormatException,
@@ -674,7 +818,7 @@ void main() {
       options: OpenDatabaseOptions(singleInstance: false),
     );
     // Then source version/data persist, and normal closed handles reject calls.
-    expect(await retained.getVersion(), 2);
+    expect(await retained.getVersion(), 3);
     expect((await retained.query('future_data')).single['value'], 'retained');
     await retained.close();
     final queue = await f.openQueue();
@@ -732,3 +876,18 @@ final class _ConfigureObservingFactory implements DatabaseFactory {
     // Then no fabricated database, path or filesystem result can be returned.
   }
 }
+
+TklContentDigest _digest(String digit) => TklContentDigest(
+  algorithm: 'sha256', value: List.filled(64, digit).join());
+SubmissionRequest _integrityRequest(SubmissionRequest original) =>
+  SubmissionCodec.requestFromJson({
+    ...SubmissionCodec.requestToJson(original), 'version': 2,
+    'storageConnectionId': null,
+    'tklDelivery': {'requestId': original.id, 'contribution': {
+      'originals': [for (final material in original.materials) {
+        'resourceId': material.key, 'mediaType': material.original.mediaType,
+        'byteLength': material.original.byteLength,
+        'sourceReference': {'kind': 'mobileOriginal'},
+      }],
+    }},
+  });

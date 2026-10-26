@@ -2,6 +2,16 @@ import 'dart:typed_data';
 
 import '../capture/capture_material.dart';
 
+/// Optional bounded, read-only access to retained original bytes.
+/// Ranges are half-open; cancellation closes the operation's own reader.
+abstract interface class StreamingLocalCaptureStore {
+  Stream<List<int>> openMaterial(
+    CaptureMaterialReference reference, {
+    int start = 0,
+    int? end,
+  });
+}
+
 /// Local durable storage for original materials and opaque JSON documents.
 ///
 /// Core supplies persistence without defining application schema, capture

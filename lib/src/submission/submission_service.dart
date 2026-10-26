@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import '../repository/local_capture_store.dart';
 import 'submission_adapters.dart';
+import 'registered_material_handoff_service.dart';
 import 'submission_configuration.dart';
 import 'submission_json.dart' as j;
 import 'submission_queue_store.dart';
@@ -11,6 +12,9 @@ import 'submission_record.dart';
 import 'submission_reference_access.dart';
 import 'submission_request.dart';
 import 'submission_transfer_status.dart';
+import 'tkl_material_delivery.dart';
+import 'tkl_material_delivery_http_client.dart';
+import 'tkl_original_content.dart';
 
 /// Safe scheduler notice; durable intent remains queued despite this notice.
 final class SubmissionSchedulingFailure {
@@ -58,6 +62,7 @@ enum SubmissionRunOutcome {
   offline,
   progress,
   submitted,
+  materialRegistered,
   failed,
   cancelled,
   leaseLost,
@@ -99,7 +104,9 @@ final class SubmissionService {
     required Map<String, SubmissionStorageAdapter> storageAdapters,
     required Map<String, SubmissionTransport> transports,
     required this._scheduler,
+    Map<String, TklMaterialDeliveryClient> tklClients = const {},
     this._referenceAccessPolicy,
+    this.registeredMaterialHandoffs,
     DateTime Function()? now,
     this.leaseDuration = const Duration(minutes: 5),
     this.operationTimeout = const Duration(minutes: 1),
@@ -108,6 +115,9 @@ final class SubmissionService {
          storageAdapters,
        ),
        _transports = Map<String, SubmissionTransport>.unmodifiable(transports),
+       _tklClients = Map<String, TklMaterialDeliveryClient>.unmodifiable(
+         tklClients,
+       ),
        _now = now ?? DateTime.now {
     if (operationTimeout <= Duration.zero ||
         leaseDuration <= operationTimeout ||
@@ -115,6 +125,9 @@ final class SubmissionService {
       throw ArgumentError(
         'Positive durations and lease > timeout are required',
       );
+    }
+    for (final key in _tklClients.keys) {
+      j.token(key);
     }
     for (final e in _storage.entries) {
       j.token(e.key);
@@ -127,11 +140,16 @@ final class SubmissionService {
   }
 
   final SubmissionQueueStore _queue;
+
+  /// Optional borrowed Registered-source Studio capability. Custom compositions
+  /// opt in explicitly; closing this service does not close that capability.
+  final RegisteredMaterialHandoffService? registeredMaterialHandoffs;
   final LocalCaptureStore _materials;
   final SubmissionWakeScheduler _scheduler;
   final SubmissionReferenceAccessPolicy? _referenceAccessPolicy;
   final Map<String, SubmissionStorageAdapter> _storage;
   final Map<String, SubmissionTransport> _transports;
+  final Map<String, TklMaterialDeliveryClient> _tklClients;
   final DateTime Function() _now;
   final Random _random = Random.secure();
 
@@ -201,7 +219,17 @@ final class SubmissionService {
         }
         for (final material in request.materials) {
           if (_closing) throw StateError('Submission service is closed');
+          if (request.tklDelivery != null && _materials is! StreamingLocalCaptureStore) {
+            throw SubmissionAdapterException(
+              stage: SubmissionFailureStage.localMaterial, code: 'originalStreamingRequired',
+              message: 'Bounded retained-original reading is required.', retryable: false,
+            );
+          }
           try {
+            if (request.tklDelivery != null) {
+              await _validateStreamingOriginalAtCommit(material);
+              continue;
+            }
             final bytes = await _materials.readMaterial(material.original);
             if (bytes.length != material.original.byteLength) {
               throw StateError('Original length mismatch');
@@ -219,6 +247,15 @@ final class SubmissionService {
         final record = await _queue.enqueue(request);
         return _wake(record);
       });
+
+  Future<void> _validateStreamingOriginalAtCommit(SubmissionMaterial material) async {
+    final store = _materials as StreamingLocalCaptureStore;
+    // The empty range still validates the actual complete retained-file length.
+    // Commit admits existing local intent; hashing belongs to later leased claims.
+    await store.openMaterial(material.original, start: 0, end: 0)
+        .timeout(operationTimeout).drain<void>();
+    if (_closing) throw StateError('Submission service is closed');
+  }
 
   /// Explicitly requeues failure before requesting a wake; unknown/active id
   /// fails without scheduling. Submitted is unchanged and needs no wake.
@@ -238,7 +275,8 @@ final class SubmissionService {
   });
 
   Future<SubmissionCommitResult> _wake(SubmissionRecord record) async {
-    if (record.state == SubmissionState.submitted) {
+    if (record.state == SubmissionState.submitted ||
+        record.state == SubmissionState.materialRegistered) {
       return SubmissionCommitResult(record: record);
     }
     try {
@@ -333,7 +371,8 @@ final class SubmissionService {
   ) async {
     _queryOpen();
     var access = SubmissionReferenceAccessState.unknown;
-    if (record.acknowledgement == null &&
+    if (record.request.tklDelivery == null &&
+        record.acknowledgement == null &&
         record.request.materials.isNotEmpty &&
         record.receipts.length == record.request.materials.length) {
       final packet = SubmissionPacket(
@@ -348,11 +387,14 @@ final class SubmissionService {
       }
       _queryOpen();
     }
+    final handoff = await registeredMaterialHandoffs?.findForSource(record.request.id);
+    _queryOpen();
     return SubmissionTransferStatus.fromRecord(
       record,
       observedAt: observedAt,
       networkState: networkState,
       referenceAccessState: access,
+      handoff: handoff,
     );
   }
 
@@ -435,6 +477,17 @@ final class SubmissionService {
         error.retryable,
         transportFailureOutcome: error.transportFailureOutcome,
       );
+    } on TklMaterialDeliveryHttpException catch (error) {
+      throw _StageFailure(
+        error.code == 'authRequired' || error.code == 'permissionDenied'
+            ? SubmissionFailureStage.configuration
+            : stage,
+        error.outcomeUnknown ? 'lakeOutcomeUnknown' : error.code,
+        error.outcomeUnknown
+            ? 'TKL outcome is unknown; reconcile the same delivery.'
+            : 'TKL delivery could not be completed.',
+        error.outcomeUnknown || error.retryable,
+      );
     } on TimeoutException {
       throw _StageFailure(
         stage,
@@ -483,6 +536,9 @@ final class SubmissionService {
       _claims[record.request.id] = record;
       _guard(isRunCurrent);
       final request = record.request;
+      if (request.tklDelivery != null) {
+        return await _processTkl(record, isRunCurrent);
+      }
       for (final material in request.materials) {
         if (record!.reservations.containsKey(material.key)) continue;
         final storage = _storage[request.storageConnectionId];
@@ -664,6 +720,407 @@ final class SubmissionService {
       Error.throwWithStackTrace(error.error, error.stack);
     }
   });
+
+  Future<SubmissionRunResult> _processTkl(
+    SubmissionRecord initial,
+    bool Function()? predicate,
+  ) async {
+    var record = initial;
+    final request = record.request;
+    final originals = _tklOriginals(request);
+    final client = _tklClients[request.transportConnectionId];
+    if (client == null) {
+      throw const _StageFailure(
+        SubmissionFailureStage.configuration,
+        'lakeConnectionRequired',
+        'TKL service connection is not configured.',
+        false,
+      );
+    }
+    record = await _renew(record, predicate);
+    final previous = record.tklProgress;
+    var progress = await _remote(
+      SubmissionFailureStage.transport,
+      () => previous == null
+          ? client.findForRequest(request.id)
+          : client.get(previous.deliveryRef),
+    );
+    _guard(predicate);
+    if (progress == null) {
+      final destination = await _remote(
+        SubmissionFailureStage.configuration,
+        client.getDestination,
+      );
+      _guard(predicate);
+      if (destination.availability != TklDestinationAvailability.available) {
+        throw const _StageFailure(
+          SubmissionFailureStage.configuration,
+          'lakeConfigurationRequired',
+          'TKL destination is unavailable; operator configuration is required.',
+          false,
+        );
+      }
+      if (destination.contentIntegrity != 'sha256' &&
+          (destination.transferMethod == TklMaterialTransferMethod.googleDriveResumable ||
+           originals.any((item) => item.containsKey('contentDigest')) ||
+           record.tklContentDigests.isNotEmpty)) {
+        throw const _StageFailure(SubmissionFailureStage.configuration,
+          'integrityCapabilityRequired', 'TKL content verification capability is required.', false);
+      }
+      if (destination.contentIntegrity == 'sha256') {
+        final checkpoint = await _hashMissingTklOriginal(record, originals, predicate);
+        if (checkpoint != null) return _release(checkpoint, SubmissionRunOutcome.progress);
+      }
+      final transportRequest = _tklTransportRequest(record, originals);
+      record = await _renew(record, predicate);
+      final prepared = await _remote<TklMaterialDeliverySnapshot>(
+        SubmissionFailureStage.transport,
+        () => client.prepare(transportRequest),
+      );
+      _guard(predicate);
+      record = await _queue.saveTklProgress(
+        id: request.id,
+        leaseToken: record.leaseToken!,
+        progress: prepared,
+        now: _time(),
+      );
+      _claims[request.id] = record;
+      _guard(predicate);
+      return _finishTklStep(record);
+    }
+    if (progress.resources.any((r) => r.contentDigest != null)) {
+      final checkpoint = await _hashMissingTklOriginal(record, originals, predicate);
+      if (checkpoint != null) return _release(checkpoint, SubmissionRunOutcome.progress);
+    } else if (progress.transferMethod == TklMaterialTransferMethod.googleDriveResumable &&
+        progress.resources.isNotEmpty &&
+        progress.state != TklMaterialDeliveryState.registered) {
+      record = await _queue.saveTklProgress(
+        id: request.id, leaseToken: record.leaseToken!, progress: progress, now: _time(),
+      );
+      _claims[request.id] = record;
+      _guard(predicate);
+      throw const _StageFailure(SubmissionFailureStage.storage,
+        'integrityUpgradeRequired', 'This retained direct delivery requires operator disposition.', false);
+    }
+    record = await _queue.saveTklProgress(
+      id: request.id,
+      leaseToken: record.leaseToken!,
+      progress: progress,
+      now: _time(),
+    );
+    _claims[request.id] = record;
+    _guard(predicate);
+    if (progress.state == TklMaterialDeliveryState.registered) {
+      return _finishTklStep(record);
+    }
+    if (progress.state == TklMaterialDeliveryState.verificationFailed ||
+        {'integrityMismatch', 'verificationUnavailable', 'integrityUpgradeRequired'}
+            .contains(progress.actionRequired)) {
+      final code = {'integrityMismatch', 'verificationUnavailable', 'integrityUpgradeRequired'}
+              .contains(progress.actionRequired)
+          ? progress.actionRequired!
+          : progress.resources.any((r) => r.verificationReason == 'integrityMismatch')
+              ? 'integrityMismatch' : 'verificationUnavailable';
+      throw _StageFailure(SubmissionFailureStage.storage, code,
+        'Content verification requires explicit operator disposition.', false);
+    }
+    if (progress.state == TklMaterialDeliveryState.reconciliationRequired ||
+        progress.resources.any(
+          (resource) =>
+              resource.state == TklOriginalTransferState.reconciliationRequired,
+        )) {
+      throw const _StageFailure(
+        SubmissionFailureStage.storage,
+        'lakeReconciliationRequired',
+        'TKL requires reconciliation; originals and confirmed progress are retained.',
+        false,
+      );
+    }
+    if (progress.state == TklMaterialDeliveryState.registering ||
+        progress.resources.any(
+          (resource) => resource.state == TklOriginalTransferState.transferring,
+        )) {
+      throw const _StageFailure(
+        SubmissionFailureStage.storage,
+        'lakeProgressPending',
+        'TKL processing is in progress; status will be checked again.',
+        true,
+      );
+    }
+    final pending = progress.state == TklMaterialDeliveryState.verifying
+        ? <TklOriginalTransferProgress>[]
+        : progress.resources.where(
+            (resource) => resource.state == TklOriginalTransferState.pending,
+          );
+    if (pending.isNotEmpty) {
+      final resource = pending.first;
+      if (progress.transferMethod ==
+          TklMaterialTransferMethod.googleDriveResumable) {
+        if (client is! TklStreamingDirectMaterialDeliveryClient) {
+          throw const _StageFailure(
+            SubmissionFailureStage.configuration,
+            'directTransferClientRequired',
+            'The prepared direct transfer requires a compatible client.',
+            false,
+          );
+        }
+        return _processDirectOriginal(record, client, resource, predicate);
+      }
+      final material = request.materials.singleWhere(
+        (material) => material.key == resource.resourceId,
+      );
+      final bytes = await _original(material);
+      _guard(predicate);
+      record = await _renew(record, predicate);
+      progress = await _remote(
+        SubmissionFailureStage.storage,
+        () => client.uploadOriginal(
+          deliveryRef: progress!.deliveryRef,
+          resourceId: resource.resourceId,
+          mediaType: resource.mediaType,
+          content: bytes,
+        ),
+      );
+    } else {
+      record = await _renew(record, predicate);
+      progress = await _remote(
+        SubmissionFailureStage.transport,
+        () => client.finalize(progress!.deliveryRef),
+      );
+    }
+    _guard(predicate);
+    record = await _queue.saveTklProgress(
+      id: request.id,
+      leaseToken: record.leaseToken!,
+      progress: progress,
+      now: _time(),
+    );
+    _claims[request.id] = record;
+    _guard(predicate);
+    return _finishTklStep(record);
+  }
+
+  Future<SubmissionRunResult> _processDirectOriginal(
+    SubmissionRecord record,
+    TklStreamingDirectMaterialDeliveryClient client,
+    TklOriginalTransferProgress resource,
+    bool Function()? predicate,
+  ) async {
+    final reference = record.tklProgress!.deliveryRef;
+    final receipt = record.directReceipts[resource.resourceId];
+    TklMaterialDeliverySnapshot progress;
+    if (receipt != null) {
+      record = await _renew(record, predicate);
+      progress = await _remote(
+        SubmissionFailureStage.storage,
+        () => client.confirmOriginalTransfer(
+          deliveryRef: reference,
+          receipt: receipt,
+        ),
+      );
+    } else {
+      record = await _renew(record, predicate);
+      final prepared = await _remote(
+        SubmissionFailureStage.storage,
+        () => client.prepareOriginalTransfer(
+          deliveryRef: reference,
+          resourceId: resource.resourceId,
+        ),
+      );
+      _guard(predicate);
+      progress = prepared.delivery;
+      record = await _queue.saveTklProgress(
+        id: record.request.id,
+        leaseToken: record.leaseToken!,
+        progress: progress,
+        now: _time(),
+      );
+      _claims[record.request.id] = record;
+      _guard(predicate);
+      final instruction = prepared.instruction;
+      if (instruction != null) {
+        final original = record.request.materials.singleWhere(
+          (material) => material.key == resource.resourceId,
+        );
+        final store = _materials;
+        if (store is! StreamingLocalCaptureStore) {
+          throw const _StageFailure(SubmissionFailureStage.localMaterial,
+            'originalStreamingRequired', 'Bounded retained-original reading is required.', false);
+        }
+        final streamingStore = store as StreamingLocalCaptureStore;
+        if (instruction.resourceId != original.key ||
+            instruction.mediaType != original.original.mediaType ||
+            instruction.byteLength != original.original.byteLength) {
+          throw const _StageFailure(SubmissionFailureStage.storage,
+            'originalBindingMismatch', 'Transfer declaration does not match retained original.', false);
+        }
+        record = await _renew(record, predicate);
+        var currentOperation = true;
+        late final TklDirectUploadReceipt completed;
+        try {
+          completed = await _remote(
+            SubmissionFailureStage.storage,
+            () => client.uploadDirectStream(
+              instruction: instruction, totalLength: original.original.byteLength,
+              openRange: (start, end) async* {
+                if (!currentOperation) throw const _Cancelled();
+                _guard(predicate);
+                await for (final bytes in streamingStore.openMaterial(original.original, start: start, end: end)) {
+                  if (!currentOperation) throw const _Cancelled();
+                  _guard(predicate);
+                  yield bytes;
+                }
+                _guard(predicate);
+              },
+            ),
+          );
+        } finally {
+          currentOperation = false;
+        }
+        _guard(predicate);
+        record = await _queue.saveDirectUploadReceipt(
+          id: record.request.id,
+          leaseToken: record.leaseToken!,
+          receipt: completed,
+          now: _time(),
+        );
+        _claims[record.request.id] = record;
+        _guard(predicate);
+        return _release(record, SubmissionRunOutcome.progress);
+      }
+      if (!progress.resources.any(
+            (item) =>
+                item.resourceId == resource.resourceId &&
+                item.state == TklOriginalTransferState.uploaded,
+          ) &&
+          progress.state != TklMaterialDeliveryState.reconciliationRequired) {
+        throw const _StageFailure(
+          SubmissionFailureStage.storage,
+          'directTransferInstructionRequired',
+          'TKL did not supply the required transfer instruction.',
+          false,
+        );
+      }
+    }
+    _guard(predicate);
+    record = await _queue.saveTklProgress(
+      id: record.request.id,
+      leaseToken: record.leaseToken!,
+      progress: progress,
+      now: _time(),
+    );
+    _claims[record.request.id] = record;
+    _guard(predicate);
+    return _finishTklStep(record);
+  }
+
+  List<Map<String, Object?>> _tklOriginals(SubmissionRequest request) {
+    try {
+      final raw = request.tklDelivery!.contribution['originals'];
+      if (raw is! List || raw.length != request.materials.length) throw const FormatException();
+      final originals = <Map<String, Object?>>[];
+      for (var i = 0; i < raw.length; i++) {
+        final item = j.object(raw[i]);
+        final material = request.materials[i];
+        final source = j.object(item['sourceReference']);
+        if (item['resourceId'] != material.key ||
+            item['mediaType'] != material.original.mediaType ||
+            item['byteLength'] != material.original.byteLength ||
+            source['kind'] != 'mobileOriginal' ||
+            (source.containsKey('resourceId') && source['resourceId'] != material.key) ||
+            (source.containsKey('provenance') &&
+                !j.deepEquals(source['provenance'], material.provenance))) {
+          throw const FormatException();
+        }
+        if (item.containsKey('contentDigest')) TklContentDigest.fromJson(item['contentDigest']);
+        originals.add(item);
+      }
+      return originals;
+    } catch (_) {
+      throw const _StageFailure(SubmissionFailureStage.localMaterial,
+        'originalBindingMismatch', 'Original declaration does not match retained intent.', false);
+    }
+  }
+
+  Future<SubmissionRecord?> _hashMissingTklOriginal(
+    SubmissionRecord record, List<Map<String, Object?>> originals,
+    bool Function()? predicate,
+  ) async {
+    for (var i = 0; i < record.request.materials.length; i++) {
+      final material = record.request.materials[i];
+      if (record.tklContentDigests.containsKey(material.key)) continue;
+      final store = _materials;
+      if (store is! StreamingLocalCaptureStore) {
+        throw const _StageFailure(SubmissionFailureStage.localMaterial,
+          'originalStreamingRequired', 'Bounded retained-original reading is required.', false);
+      }
+      final streamingStore = store as StreamingLocalCaptureStore;
+      record = await _renew(record, predicate);
+      late final TklContentDigest digest;
+      try {
+        digest = await hashTklOriginalContent(
+          store: streamingStore, reference: material.original, timeout: operationTimeout,
+          checkCurrent: () {
+            _guard(predicate);
+            if (!record.leaseExpiresAt!.isAfter(_time())) {
+              throw SubmissionLeaseLostException(record.request.id);
+            }
+          },
+        );
+      } on _Cancelled { rethrow;
+      } on _PredicateError { rethrow;
+      } on SubmissionLeaseLostException { rethrow;
+      } on TimeoutException {
+        throw const _StageFailure(SubmissionFailureStage.localMaterial,
+          'operationTimeout', 'Original preparation timed out.', true);
+      } catch (_) {
+        throw const _StageFailure(SubmissionFailureStage.localMaterial,
+          'originalUnavailable', 'Retained original is missing or invalid.', false);
+      }
+      _guard(predicate);
+      if (originals[i].containsKey('contentDigest') &&
+          TklContentDigest.fromJson(originals[i]['contentDigest']) != digest) {
+        throw const _StageFailure(SubmissionFailureStage.localMaterial,
+          'integrityMismatch', 'Retained bytes differ from the accepted expectation.', false);
+      }
+      record = await _queue.saveTklContentDigest(
+        id: record.request.id, leaseToken: record.leaseToken!,
+        key: material.key, digest: digest, now: _time(),
+      );
+      _claims[record.request.id] = record;
+      _guard(predicate);
+      return record;
+    }
+    return null;
+  }
+
+  TklMaterialDeliveryRequest _tklTransportRequest(
+    SubmissionRecord record, List<Map<String, Object?>> originals,
+  ) {
+    if (record.tklContentDigests.isEmpty) return record.request.tklDelivery!;
+    final contribution = j.object(j.detach(record.request.tklDelivery!.contribution));
+    contribution['originals'] = [
+      for (var i = 0; i < originals.length; i++)
+        {...originals[i], 'contentDigest': record.tklContentDigests[record.request.materials[i].key]!.toJson()},
+    ];
+    return TklMaterialDeliveryRequest(requestId: record.request.id, contribution: contribution);
+  }
+
+  Future<SubmissionRunResult> _finishTklStep(SubmissionRecord record) async {
+    if (record.tklProgress!.state != TklMaterialDeliveryState.registered) {
+      return _release(record, SubmissionRunOutcome.progress);
+    }
+    final completed = await _queue.completeMaterialRegistration(
+      id: record.request.id,
+      leaseToken: record.leaseToken!,
+      now: _time(),
+    );
+    _claims.remove(record.request.id);
+    return SubmissionRunResult(
+      outcome: SubmissionRunOutcome.materialRegistered,
+      record: completed,
+    );
+  }
 
   Future<Uint8List> _original(SubmissionMaterial material) async {
     try {

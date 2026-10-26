@@ -50,6 +50,7 @@ final class SubmissionFixture {
     LocalCaptureStore? originals,
     Map<String, SubmissionStorageAdapter>? storageAdapters,
     Map<String, SubmissionTransport>? transports,
+    Map<String, TklMaterialDeliveryClient> tklClients = const {},
     SubmissionReferenceAccessPolicy? referenceAccessPolicy,
     Duration leaseDuration = const Duration(minutes: 5),
     Duration operationTimeout = const Duration(minutes: 1),
@@ -60,6 +61,7 @@ final class SubmissionFixture {
       materials: originals ?? materials,
       storageAdapters: storageAdapters ?? {'drive': storage},
       transports: transports ?? {'server': transport},
+      tklClients: tklClients,
       scheduler: scheduler,
       referenceAccessPolicy: referenceAccessPolicy ?? referenceAccess,
       now: () => now,
@@ -427,6 +429,63 @@ final class ControlledQueue implements SubmissionQueueStore {
     'markTransportDispatch',
     () => inner.markTransportDispatch(id: id, leaseToken: leaseToken, now: now),
   );
+  @override
+  Future<SubmissionRecord> saveTklContentDigest({
+    required String id,
+    required String leaseToken,
+    required String key,
+    required TklContentDigest digest,
+    required DateTime now,
+  }) => _call(
+    'saveTklContentDigest',
+    () => inner.saveTklContentDigest(
+      id: id, leaseToken: leaseToken, key: key, digest: digest, now: now,
+    ),
+  );
+  @override
+  Future<SubmissionRecord> saveTklProgress({
+    required String id,
+    required String leaseToken,
+    required TklMaterialDeliverySnapshot progress,
+    required DateTime now,
+  }) => _call(
+    'saveTklProgress',
+    () => inner.saveTklProgress(
+      id: id,
+      leaseToken: leaseToken,
+      progress: progress,
+      now: now,
+    ),
+  );
+  @override
+  Future<SubmissionRecord> saveDirectUploadReceipt({
+    required String id,
+    required String leaseToken,
+    required TklDirectUploadReceipt receipt,
+    required DateTime now,
+  }) => _call(
+    'saveDirectUploadReceipt',
+    () => inner.saveDirectUploadReceipt(
+      id: id,
+      leaseToken: leaseToken,
+      receipt: receipt,
+      now: now,
+    ),
+  );
+  @override
+  Future<SubmissionRecord> completeMaterialRegistration({
+    required String id,
+    required String leaseToken,
+    required DateTime now,
+  }) => _call(
+    'completeMaterialRegistration',
+    () => inner.completeMaterialRegistration(
+      id: id,
+      leaseToken: leaseToken,
+      now: now,
+    ),
+  );
+
   @override
   Future<SubmissionRecord> complete({
     required String id,

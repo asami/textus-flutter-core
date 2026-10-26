@@ -1,5 +1,6 @@
 import '../capture/capture_material.dart';
 import 'submission_json.dart' as j;
+import 'tkl_material_delivery.dart';
 
 /// An immutable original reference and opaque provenance at Commit time.
 final class SubmissionMaterial {
@@ -48,6 +49,7 @@ final class SubmissionRequest {
     required List<SubmissionMaterial> materials,
     required String transportConnectionId,
     String? storageConnectionId,
+    this.tklDelivery,
     Map<String, Object?> extensions = const {},
   }) : id = j.token(id),
        kind = j.token(kind),
@@ -65,8 +67,15 @@ final class SubmissionRequest {
         this.materials.length) {
       throw ArgumentError('Duplicate material key');
     }
-    if (this.materials.isEmpty != (this.storageConnectionId == null)) {
+    if (tklDelivery == null &&
+        this.materials.isEmpty != (this.storageConnectionId == null)) {
       throw ArgumentError('Storage connection must match material presence');
+    }
+    if (tklDelivery != null &&
+        (tklDelivery!.requestId != this.id || storageConnectionId != null)) {
+      throw ArgumentError(
+        'TKL delivery requires its Commit identity and server-owned storage.',
+      );
     }
   }
 
@@ -97,6 +106,9 @@ final class SubmissionRequest {
   /// Safe storage connection key, null exactly when there are no materials.
   final String? storageConnectionId;
 
+  /// Explicit server-mediated route. Null retains the complete legacy route.
+  final TklMaterialDeliveryRequest? tklDelivery;
+
   /// Immutable opaque presentation/execution extensions.
   final Map<String, Object?> extensions;
 
@@ -112,7 +124,9 @@ final class SubmissionRequest {
       j.deepEquals(materials, other.materials) &&
       transportConnectionId == other.transportConnectionId &&
       storageConnectionId == other.storageConnectionId &&
-      j.deepEquals(extensions, other.extensions);
+      j.deepEquals(extensions, other.extensions) &&
+      tklDelivery?.requestId == other.tklDelivery?.requestId &&
+      j.deepEquals(tklDelivery?.contribution, other.tklDelivery?.contribution);
 
   @override
   int get hashCode => Object.hash(
@@ -126,5 +140,7 @@ final class SubmissionRequest {
     transportConnectionId,
     storageConnectionId,
     j.deepHash(extensions),
+    tklDelivery?.requestId,
+    j.deepHash(tklDelivery?.contribution),
   );
 }

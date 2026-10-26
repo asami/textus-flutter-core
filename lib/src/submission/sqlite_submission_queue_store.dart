@@ -5,12 +5,18 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart' as sqlite;
 
 import 'submission_codec.dart';
+import 'registered_material_handoff_store.dart';
+import 'registered_material_submission.dart';
+import 'registered_material_submission_codec.dart';
+import 'submission_connections.dart';
 import 'submission_json.dart' as j;
 import 'submission_queue_store.dart';
 import 'submission_record.dart';
 import 'submission_request.dart';
+import 'tkl_material_delivery.dart';
+import 'tkl_original_content.dart';
 
-/// Opens the owned version 1 database in application support on Android, iOS
+/// Opens the owned version 2 database in application support on Android, iOS
 /// and macOS. Web/other default platforms throw [UnsupportedError]. Plugin/IO
 /// errors propagate, without fallback or deletion. Caller owns and closes it.
 Future<SubmissionQueueStore> openDefaultSubmissionQueueStore() async {
@@ -31,7 +37,8 @@ Future<SubmissionQueueStore> openDefaultSubmissionQueueStore() async {
 /// Dedicated transactional durable submission database. Each instance owns one
 /// independent handle, serializes its operations, and relies on native SQLite
 /// for other handles/isolates. No adapter or material IO occurs in transactions.
-final class SqliteSubmissionQueueStore implements SubmissionQueueStore {
+final class SqliteSubmissionQueueStore
+    implements SubmissionQueueStore, RegisteredMaterialHandoffStore {
   SqliteSubmissionQueueStore._(this._database);
 
   /// Opens an independent handle with FULL synchronous writes and 5s busy wait.
@@ -47,7 +54,7 @@ final class SqliteSubmissionQueueStore implements SubmissionQueueStore {
     final database = await (factory ?? sqlite.databaseFactory).openDatabase(
       databasePath,
       options: sqlite.OpenDatabaseOptions(
-        version: 1,
+        version: 2,
         singleInstance: false,
         onConfigure: (db) async {
           // Given an acquired independent handle whose schema may be locked,
@@ -63,8 +70,13 @@ final class SqliteSubmissionQueueStore implements SubmissionQueueStore {
             'subject_id TEXT NOT NULL, body TEXT NOT NULL, '
             'UNIQUE(kind, subject_id))',
           );
+          await _createHandoffTable(db);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
+          if (oldVersion == 1 && newVersion == 2) {
+            await _createHandoffTable(db);
+            return;
+          }
           throw const FormatException(
             'Unsupported submission database version',
           );
@@ -80,9 +92,193 @@ final class SqliteSubmissionQueueStore implements SubmissionQueueStore {
   }
 
   final sqlite.Database _database;
+
+  static Future<void> _createHandoffTable(sqlite.DatabaseExecutor db) => db.execute(
+    'CREATE TABLE registered_material_handoffs ('
+    'handoff_id TEXT PRIMARY KEY, source_request_id TEXT NOT NULL UNIQUE, '
+    'body TEXT NOT NULL)',
+  );
   Future<void> _tail = Future<void>.value();
   Future<void>? _closeFuture;
   bool _closing = false;
+
+  RegisteredMaterialHandoffRecord _decodeHandoff(Map<String, Object?> row) {
+    final value = RegisteredMaterialSubmissionCodec.handoffFromJson(
+      jsonDecode(j.string(row['body'])),
+    );
+    if (value.id != row['handoff_id'] || value.sourceRequestId != row['source_request_id']) {
+      throw const FormatException('Handoff indexed identity mismatch');
+    }
+    return value;
+  }
+
+  Future<RegisteredMaterialHandoffRecord?> _handoffForSource(
+    sqlite.Transaction tx, String sourceRequestId,
+  ) async {
+    final rows = await tx.query('registered_material_handoffs',
+      where: 'source_request_id = ?', whereArgs: [j.token(sourceRequestId)]);
+    return rows.isEmpty ? null : _decodeHandoff(rows.single);
+  }
+
+  Future<List<RegisteredMaterialHandoffRecord>> _allHandoffs(sqlite.Transaction tx) async {
+    final rows = await tx.query('registered_material_handoffs');
+    final values = rows.map(_decodeHandoff).toList();
+    values.sort((a, b) {
+      final order = a.createdAt.compareTo(b.createdAt);
+      return order == 0 ? a.id.compareTo(b.id) : order;
+    });
+    return values;
+  }
+
+  RegisteredMaterialHandoffRecord _nextHandoff(
+    RegisteredMaterialHandoffRecord old, DateTime now, {
+    required RegisteredMaterialHandoffState state,
+    String? leaseToken, DateTime? leaseExpiresAt,
+    SubmissionAcknowledgement? acknowledgement,
+    RegisteredMaterialHandoffFailure? failure,
+  }) => RegisteredMaterialHandoffRecord(
+    id: old.id, sourceRequest: old.sourceRequest,
+    registeredSnapshot: old.registeredSnapshot,
+    sourceCheckpointUpdatedAt: old.sourceCheckpointUpdatedAt,
+    target: old.target, packet: old.packet, createdAt: old.createdAt,
+    updatedAt: now.toUtc().isAfter(old.updatedAt) ? now : old.updatedAt,
+    state: state, leaseToken: leaseToken, leaseExpiresAt: leaseExpiresAt,
+    acknowledgement: acknowledgement, failure: failure,
+  );
+
+  Future<RegisteredMaterialHandoffRecord> _writeHandoff(
+    sqlite.Transaction tx, RegisteredMaterialHandoffRecord value,
+  ) async {
+    final count = await tx.update('registered_material_handoffs',
+      {'body': jsonEncode(RegisteredMaterialSubmissionCodec.handoffToJson(value))},
+      where: 'handoff_id = ? AND source_request_id = ?',
+      whereArgs: [value.id, value.sourceRequestId]);
+    if (count != 1) throw StateError('Handoff disappeared during transition');
+    return value;
+  }
+
+  @override
+  Future<RegisteredMaterialHandoffRecord?> findHandoffForSource(String sourceRequestId) =>
+      _transaction((tx) => _handoffForSource(tx, sourceRequestId));
+
+  @override
+  Future<List<RegisteredMaterialHandoffRecord>> listHandoffs() => _transaction(
+    (tx) async => List<RegisteredMaterialHandoffRecord>.unmodifiable(await _allHandoffs(tx)),
+  );
+
+  @override
+  Future<RegisteredMaterialHandoffRecord> createHandoff({
+    required String id, required SubmissionRecord source,
+    required HttpSubmissionConnection target,
+    required RegisteredMaterialSubmissionPacket packet, required DateTime now,
+  }) => _transaction((tx) async {
+    j.token(id);
+    final saved = await _read(tx, source.request.id);
+    if (saved == null || saved != source ||
+        saved.state != SubmissionState.materialRegistered ||
+        saved.request.tklDelivery == null ||
+        saved.tklProgress?.state != TklMaterialDeliveryState.registered ||
+        saved.request != packet.sourceRequest ||
+        !sameRegisteredMaterialTarget(target, packet.target)) {
+      throw StateError('A matching saved Registered source is required');
+    }
+    final value = RegisteredMaterialHandoffRecord(
+      id: id, sourceRequest: saved.request, registeredSnapshot: saved.tklProgress!,
+      sourceCheckpointUpdatedAt: saved.updatedAt, target: target, packet: packet,
+      createdAt: now, updatedAt: now, state: RegisteredMaterialHandoffState.pending,
+    );
+    final old = await _handoffForSource(tx, saved.request.id);
+    if (old != null) {
+      if (!sameRegisteredMaterialTarget(old.target, target) ||
+          old.sourceRequest != saved.request || old.packet != packet ||
+          old.sourceCheckpointUpdatedAt != saved.updatedAt ||
+          !j.deepEquals(
+            RegisteredMaterialSubmissionCodec.handoffToJson(old)['registeredSnapshot'],
+            RegisteredMaterialSubmissionCodec.handoffToJson(value)['registeredSnapshot'])) {
+        throw StateError('Registered handoff source or target conflicts');
+      }
+      return old;
+    }
+    await tx.insert('registered_material_handoffs', {
+      'handoff_id': value.id, 'source_request_id': value.sourceRequestId,
+      'body': jsonEncode(RegisteredMaterialSubmissionCodec.handoffToJson(value)),
+    });
+    return value;
+  });
+
+  @override
+  Future<RegisteredMaterialHandoffRecord?> claimNextHandoff({
+    required DateTime now, required String leaseToken, required Duration leaseDuration,
+  }) => _transaction((tx) async {
+    j.token(leaseToken);
+    _positive(leaseDuration);
+    final records = await _allHandoffs(tx);
+    if (records.any((r) => r.leaseToken == leaseToken)) {
+      throw ArgumentError('Lease token must be unique');
+    }
+    for (final record in records) {
+      if (record.state == RegisteredMaterialHandoffState.sending &&
+          !record.leaseExpiresAt!.isAfter(now.toUtc())) {
+        await _writeHandoff(tx, _nextHandoff(record, now,
+          state: RegisteredMaterialHandoffState.outcomeUnknown,
+          failure: RegisteredMaterialHandoffFailure(
+            kind: RegisteredMaterialHandoffFailureKind.outcomeUnknown,
+            code: 'leaseExpired', message: 'Studio acceptance is unknown after lease expiry.',
+          ),
+        ));
+      }
+    }
+    for (final record in records) {
+      if (record.state == RegisteredMaterialHandoffState.pending) {
+        // Persist the uncertainty boundary before any transport can run.
+        final start = now.toUtc().isAfter(record.updatedAt) ? now.toUtc() : record.updatedAt;
+        return _writeHandoff(tx, _nextHandoff(record, now,
+          state: RegisteredMaterialHandoffState.sending,
+          leaseToken: leaseToken, leaseExpiresAt: start.add(leaseDuration),
+        ));
+      }
+    }
+    return null;
+  });
+
+  @override
+  Future<RegisteredMaterialHandoffRecord> finishHandoff({
+    required String id, required String leaseToken, required DateTime now,
+    required RegisteredMaterialHandoffState state,
+    SubmissionAcknowledgement? acknowledgement,
+    RegisteredMaterialHandoffFailure? failure,
+  }) => _transaction((tx) async {
+    j.token(id);
+    j.token(leaseToken);
+    if (!{RegisteredMaterialHandoffState.accepted, RegisteredMaterialHandoffState.failed,
+          RegisteredMaterialHandoffState.outcomeUnknown}.contains(state)) {
+      throw ArgumentError('Invalid handoff completion state');
+    }
+    final rows = await tx.query('registered_material_handoffs',
+      where: 'handoff_id = ?', whereArgs: [id]);
+    final old = rows.isEmpty ? null : _decodeHandoff(rows.single);
+    if (old == null || old.state != RegisteredMaterialHandoffState.sending ||
+        old.leaseToken != leaseToken || !old.leaseExpiresAt!.isAfter(now.toUtc())) {
+      throw RegisteredMaterialHandoffLeaseLostException(id);
+    }
+    return _writeHandoff(tx, _nextHandoff(old, now, state: state,
+      acknowledgement: acknowledgement, failure: failure));
+  });
+
+  @override
+  Future<RegisteredMaterialHandoffRecord> reconcileHandoff({
+    required String sourceRequestId, required DateTime now,
+  }) => _transaction((tx) async {
+    final old = await _handoffForSource(tx, sourceRequestId);
+    if (old == null || old.state == RegisteredMaterialHandoffState.accepted ||
+        (old.state == RegisteredMaterialHandoffState.sending &&
+            old.leaseExpiresAt!.isAfter(now.toUtc()))) {
+      throw StateError('Handoff cannot be reconciled in its current state');
+    }
+    if (old.state == RegisteredMaterialHandoffState.pending) return old;
+    return _writeHandoff(tx, _nextHandoff(old, now,
+      state: RegisteredMaterialHandoffState.pending));
+  });
 
   Future<T> _transaction<T>(Future<T> Function(sqlite.Transaction) action) {
     if (_closing) return Future<T>.error(StateError('Queue is closed'));
@@ -177,6 +373,9 @@ final class SqliteSubmissionQueueStore implements SubmissionQueueStore {
     SubmissionAcknowledgement? acknowledgement,
     SubmissionTransportCheckpoint? transportCheckpoint,
     bool clearTransportCheckpoint = false,
+    TklMaterialDeliverySnapshot? tklProgress,
+    Map<String, TklDirectUploadReceipt>? directReceipts,
+    Map<String, TklContentDigest>? tklContentDigests,
   }) => SubmissionRecord(
     request: old.request,
     state: state,
@@ -188,6 +387,9 @@ final class SqliteSubmissionQueueStore implements SubmissionQueueStore {
     reservations: reservations ?? old.reservations,
     receipts: receipts ?? old.receipts,
     failureHistory: history ?? old.failureHistory,
+    tklProgress: tklProgress ?? old.tklProgress,
+    directReceipts: directReceipts ?? old.directReceipts,
+    tklContentDigests: tklContentDigests ?? old.tklContentDigests,
     acknowledgement: acknowledgement,
     transportCheckpoint: clearTransportCheckpoint
         ? null
@@ -285,7 +487,8 @@ final class SqliteSubmissionQueueStore implements SubmissionQueueStore {
     for (final value in records) {
       final eligible = switch (value.state) {
         SubmissionState.readyToSubmit => true,
-        SubmissionState.submitted => false,
+        SubmissionState.submitted ||
+        SubmissionState.materialRegistered => false,
         SubmissionState.submitting => !value.leaseExpiresAt!.isAfter(
           now.toUtc(),
         ),
@@ -418,6 +621,130 @@ final class SqliteSubmissionQueueStore implements SubmissionQueueStore {
   });
 
   @override
+  Future<SubmissionRecord> saveTklContentDigest({
+    required String id,
+    required String leaseToken,
+    required String key,
+    required TklContentDigest digest,
+    required DateTime now,
+  }) => _transaction((tx) async {
+    final old = await _owned(tx, id, leaseToken, now);
+    if (old.request.tklDelivery == null ||
+        !old.request.materials.any((m) => m.key == key)) {
+      throw StateError('Content expectation requires an accepted TKL original.');
+    }
+    final existing = old.tklContentDigests[key];
+    if (existing != null) {
+      if (existing != digest) throw StateError('Content expectation is immutable.');
+      return old;
+    }
+    return _write(tx, _next(old, now,
+      state: old.state, leaseToken: old.leaseToken,
+      leaseExpiresAt: old.leaseExpiresAt,
+      tklContentDigests: {...old.tklContentDigests, key: digest},
+    ));
+  });
+
+  @override
+  Future<SubmissionRecord> saveTklProgress({
+    required String id,
+    required String leaseToken,
+    required TklMaterialDeliverySnapshot progress,
+    required DateTime now,
+  }) => _transaction((tx) async {
+    final old = await _owned(tx, id, leaseToken, now);
+    final previous = old.tklProgress;
+    if (old.request.tklDelivery == null ||
+        progress.requestId != id ||
+        (previous != null &&
+            (previous.deliveryRef != progress.deliveryRef ||
+                previous.destinationId != progress.destinationId ||
+                previous.destinationLabel != progress.destinationLabel ||
+                previous.transferMethod != progress.transferMethod ||
+                previous.transferReason != progress.transferReason ||
+                previous.revision > progress.revision ||
+                (previous.materialRef != null &&
+                    previous.materialRef != progress.materialRef)))) {
+      throw StateError('TKL progress does not match its retained delivery.');
+    }
+    if (previous != null) {
+      for (final resource in previous.resources) {
+        final next = progress.resources.where((r) => r.resourceId == resource.resourceId);
+        if (next.length != 1 ||
+            (resource.contentDigest != null && next.single.contentDigest != resource.contentDigest) ||
+            (resource.verificationAttempts != null &&
+                (next.single.verificationAttempts == null ||
+                 next.single.verificationAttempts! < resource.verificationAttempts!)) ||
+            (resource.verificationState == TklOriginalVerificationState.verified &&
+                next.single.verificationState != TklOriginalVerificationState.verified)) {
+          throw StateError('Confirmed TKL integrity cannot regress.');
+        }
+        if (resource.state == TklOriginalTransferState.uploaded &&
+            !progress.resources.any(
+              (next) =>
+                  next.resourceId == resource.resourceId &&
+                  next.state == TklOriginalTransferState.uploaded,
+            )) {
+          throw StateError('Confirmed TKL upload cannot regress.');
+        }
+      }
+    }
+    return _write(
+      tx,
+      _next(
+        old,
+        now,
+        state: old.state,
+        leaseToken: old.leaseToken,
+        leaseExpiresAt: old.leaseExpiresAt,
+        tklProgress: progress,
+      ),
+    );
+  });
+
+  @override
+  Future<SubmissionRecord> saveDirectUploadReceipt({
+    required String id,
+    required String leaseToken,
+    required TklDirectUploadReceipt receipt,
+    required DateTime now,
+  }) => _transaction((tx) async {
+    final old = await _owned(tx, id, leaseToken, now);
+    final existing = old.directReceipts[receipt.resourceId];
+    if (existing != null && existing != receipt) {
+      throw StateError('Direct upload receipt cannot be replaced.');
+    }
+    return _write(
+      tx,
+      _next(
+        old,
+        now,
+        state: old.state,
+        leaseToken: old.leaseToken,
+        leaseExpiresAt: old.leaseExpiresAt,
+        directReceipts: {...old.directReceipts, receipt.resourceId: receipt},
+      ),
+    );
+  });
+
+  @override
+  Future<SubmissionRecord> completeMaterialRegistration({
+    required String id,
+    required String leaseToken,
+    required DateTime now,
+  }) => _transaction((tx) async {
+    final old = await _owned(tx, id, leaseToken, now);
+    if (old.request.tklDelivery == null ||
+        old.tklProgress?.state != TklMaterialDeliveryState.registered) {
+      throw StateError('Confirmed TKL registration is required.');
+    }
+    return _write(
+      tx,
+      _next(old, now, state: SubmissionState.materialRegistered),
+    );
+  });
+
+  @override
   Future<SubmissionRecord> complete({
     required String id,
     required String leaseToken,
@@ -425,7 +752,8 @@ final class SqliteSubmissionQueueStore implements SubmissionQueueStore {
     required DateTime now,
   }) => _transaction((tx) async {
     final old = await _owned(tx, id, leaseToken, now);
-    if (acknowledgement.requestId != old.request.id ||
+    if (old.request.tklDelivery != null ||
+        acknowledgement.requestId != old.request.id ||
         acknowledgement.subjectId != old.request.subjectId ||
         old.receipts.length != old.request.materials.length) {
       throw StateError('Incomplete or mismatched server acceptance');

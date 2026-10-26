@@ -1,4 +1,6 @@
 import 'submission_background_resources.dart';
+import 'registered_material_handoff_service.dart';
+import 'registered_material_handoff_store.dart';
 import 'submission_queue_store.dart';
 import 'submission_record.dart';
 import 'submission_run_lifetime.dart';
@@ -117,8 +119,29 @@ final class SubmissionBackgroundRunner {
             operations: operations,
           );
         }
-        if (result.outcome == SubmissionRunOutcome.noWork ||
-            result.outcome == SubmissionRunOutcome.leaseLost) {
+        if (result.outcome == SubmissionRunOutcome.noWork) {
+          final handoffs = resources.service.registeredMaterialHandoffs;
+          if (handoffs == null || operations >= maxOperations || watch.elapsed >= runBudget) {
+            break;
+          }
+          if (!lifetime.isCurrent) return cancelled();
+          operations++;
+          final handoff = await handoffs.processNext(
+            networkAllowed: true, isRunCurrent: () => lifetime.isCurrent);
+          if (!lifetime.isCurrent ||
+              handoff.outcome == RegisteredMaterialHandoffRunOutcome.cancelled) {
+            return cancelled();
+          }
+          if (handoff.outcome == RegisteredMaterialHandoffRunOutcome.offline) {
+            return SubmissionBackgroundRunResult(
+              outcome: SubmissionBackgroundOutcome.offline, operations: operations);
+          }
+          if (handoff.outcome == RegisteredMaterialHandoffRunOutcome.noWork ||
+              handoff.outcome == RegisteredMaterialHandoffRunOutcome.leaseLost) {
+            break;
+          }
+        }
+        if (result.outcome == SubmissionRunOutcome.leaseLost) {
           break;
         }
       }
@@ -133,10 +156,28 @@ final class SubmissionBackgroundRunner {
           SubmissionState.submitting => record.leaseExpiresAt,
           SubmissionState.submissionFailed =>
             record.lastFailure!.retryable ? record.nextAttemptAt : null,
-          SubmissionState.submitted => null,
+          SubmissionState.submitted ||
+          SubmissionState.materialRegistered => null,
         };
         if (candidate != null && (due == null || candidate.isBefore(due))) {
           due = candidate;
+        }
+      }
+      final handoffs = resources.service.registeredMaterialHandoffs;
+      if (handoffs != null) {
+        final handoffRecords = await handoffs.list();
+        if (!lifetime.isCurrent) return cancelled();
+        for (final record in handoffRecords) {
+          final candidate = switch (record.state) {
+            RegisteredMaterialHandoffState.pending => now,
+            RegisteredMaterialHandoffState.sending => record.leaseExpiresAt,
+            RegisteredMaterialHandoffState.outcomeUnknown ||
+            RegisteredMaterialHandoffState.failed ||
+            RegisteredMaterialHandoffState.accepted => null,
+          };
+          if (candidate != null && (due == null || candidate.isBefore(due))) {
+            due = candidate;
+          }
         }
       }
       if (due == null) {

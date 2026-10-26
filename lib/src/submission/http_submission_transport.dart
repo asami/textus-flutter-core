@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'submission_adapters.dart';
+import 'registered_material_submission.dart';
+import 'registered_material_submission_codec.dart';
 import 'submission_codec.dart';
 import 'submission_connections.dart';
 import 'submission_http.dart';
@@ -15,7 +17,8 @@ import 'submission_record.dart';
 /// adds no scheduler/platform defaults. HTTP support and secure account grant
 /// belong to supplied ports on each platform. A Drive receipt or generic HTTP
 /// success never implies server acceptance.
-final class HttpSubmissionTransport implements SubmissionTransport {
+final class HttpSubmissionTransport
+    implements SubmissionTransport, RegisteredMaterialSubmissionTransport {
   /// Requires a total positive deadline at most 45s (including credentials).
   /// Cancellation completion/error immediately aborts active IO. A false or
   /// throwing run predicate retires the operation; sent remote effects may finish.
@@ -36,6 +39,7 @@ final class HttpSubmissionTransport implements SubmissionTransport {
   }
 
   /// Immutable endpoint/authorization definition, without credentials.
+  @override
   final HttpSubmissionConnection connection;
   final http.Client _client;
   final SubmissionCredentialProvider _credentials;
@@ -59,7 +63,26 @@ final class HttpSubmissionTransport implements SubmissionTransport {
   /// Before potential send they report notSent; afterwards only explicit 401/403
   /// authorization refusal is rejected. Every other failed result stays unknown.
   @override
-  Future<SubmissionAcknowledgement> submit(SubmissionPacket packet) async {
+  Future<SubmissionAcknowledgement> submit(SubmissionPacket packet) => _submit(
+    requestId: packet.request.id, subjectId: packet.request.subjectId,
+    targetMatches: packet.request.transportConnectionId == connection.id,
+    encode: () => SubmissionCodec.packetToJson(packet),
+  );
+
+  /// Sends only the typed v2 packet to its exact pinned Studio target.
+  @override
+  Future<SubmissionAcknowledgement> submitRegisteredMaterial(
+    RegisteredMaterialSubmissionPacket packet,
+  ) => _submit(
+    requestId: packet.sourceRequest.id, subjectId: packet.sourceRequest.subjectId,
+    targetMatches: sameRegisteredMaterialTarget(packet.target, connection),
+    encode: () => RegisteredMaterialSubmissionCodec.packetToJson(packet),
+  );
+
+  Future<SubmissionAcknowledgement> _submit({
+    required String requestId, required String subjectId,
+    required bool targetMatches, required Map<String, Object?> Function() encode,
+  }) async {
     final operation = SubmissionHttpOperation(
       stage: SubmissionFailureStage.transport,
       timeout: operationTimeout,
@@ -70,7 +93,7 @@ final class HttpSubmissionTransport implements SubmissionTransport {
     int? responseStatus;
     try {
       operation.check();
-      if (packet.request.transportConnectionId != connection.id) {
+      if (!targetMatches) {
         throw httpFailure(
           SubmissionFailureStage.configuration,
           'connectionMismatch',
@@ -79,7 +102,7 @@ final class HttpSubmissionTransport implements SubmissionTransport {
       final headers = {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'Idempotency-Key': packet.request.id,
+        'Idempotency-Key': requestId,
       };
       if (connection.requiresBearerToken) {
         final token = await operation.token(_credentials, connection.id);
@@ -87,7 +110,7 @@ final class HttpSubmissionTransport implements SubmissionTransport {
       }
       operation.check();
       final body = utf8.encode(
-        jsonEncode(SubmissionCodec.packetToJson(packet)),
+        jsonEncode(encode()),
       );
       operation.check();
       potentiallyDispatched = true;
@@ -122,8 +145,8 @@ final class HttpSubmissionTransport implements SubmissionTransport {
         acknowledgement = SubmissionCodec.acknowledgementFromJson(
           j.object(response.json()),
         );
-        if (acknowledgement.requestId != packet.request.id ||
-            acknowledgement.subjectId != packet.request.subjectId) {
+        if (acknowledgement.requestId != requestId ||
+            acknowledgement.subjectId != subjectId) {
           throw const FormatException('Mismatched acknowledgement');
         }
       } catch (_) {

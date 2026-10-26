@@ -4,9 +4,17 @@ import '../capture/capture_material.dart';
 import 'local_capture_store.dart';
 
 /// API-compatible storage boundary for platforms without dart:io.
-final class FileCaptureStore implements LocalCaptureStore {
+final class FileCaptureStore
+    implements LocalCaptureStore, StreamingLocalCaptureStore {
   /// Creates an unsupported-platform boundary; no durable storage is opened.
   FileCaptureStore(String directoryPath);
+
+  @override
+  Stream<List<int>> openMaterial(
+    CaptureMaterialReference reference, {
+    int start = 0,
+    int? end,
+  }) => throw _unsupported();
 
   /// Fails observably because original material cannot be persisted here.
   @override

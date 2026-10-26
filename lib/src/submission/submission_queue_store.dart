@@ -1,6 +1,8 @@
 import 'submission_json.dart' as j;
 import 'submission_record.dart';
 import 'submission_request.dart';
+import 'tkl_material_delivery.dart';
+import 'tkl_original_content.dart';
 
 /// Safe lost-owner signal; never exposes a lease token or credential.
 final class SubmissionLeaseLostException implements Exception {
@@ -72,6 +74,40 @@ abstract interface class SubmissionQueueStore {
   Future<SubmissionRecord> markTransportDispatch({
     required String id,
     required String leaseToken,
+    required DateTime now,
+  });
+
+  /// Saves one immutable retained-byte expectation under the current valid lease.
+  /// Equal duplicates are idempotent; unknown keys or replacements never write.
+  Future<SubmissionRecord> saveTklContentDigest({
+    required String id,
+    required String leaseToken,
+    required String key,
+    required TklContentDigest digest,
+    required DateTime now,
+  });
+
+  /// Saves authenticated TKL progress under the current lease. The delivery and
+  /// destination binding are retained; confirmed uploads cannot regress.
+  Future<SubmissionRecord> saveTklProgress({
+    required String id,
+    required String leaseToken,
+    required TklMaterialDeliverySnapshot progress,
+    required DateTime now,
+  });
+
+  /// Completes only TKL registration, retaining a null Studio acknowledgement.
+  Future<SubmissionRecord> completeMaterialRegistration({
+    required String id,
+    required String leaseToken,
+    required DateTime now,
+  });
+
+  /// Records provider completion before notifying TKL. No session URI is stored.
+  Future<SubmissionRecord> saveDirectUploadReceipt({
+    required String id,
+    required String leaseToken,
+    required TklDirectUploadReceipt receipt,
     required DateTime now,
   });
 

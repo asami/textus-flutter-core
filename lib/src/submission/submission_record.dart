@@ -1,8 +1,17 @@
 import 'submission_json.dart' as j;
 import 'submission_request.dart';
+import 'tkl_material_delivery.dart';
+import 'tkl_material_delivery_codec.dart';
+import 'tkl_original_content.dart';
 
 /// Durable lifecycle controlled exclusively by the queue store.
-enum SubmissionState { readyToSubmit, submitting, submitted, submissionFailed }
+enum SubmissionState {
+  readyToSubmit,
+  submitting,
+  submitted,
+  submissionFailed,
+  materialRegistered,
+}
 
 /// Safe attribution of a failed stage, independent of any domain policy.
 enum SubmissionFailureStage { localMaterial, storage, transport, configuration }
@@ -247,7 +256,11 @@ final class SubmissionRecord {
     List<SubmissionFailure> failureHistory = const [],
     this.acknowledgement,
     this.transportCheckpoint,
-  }) : updatedAt = updatedAt.toUtc(),
+    this.tklProgress,
+    Map<String, TklContentDigest> tklContentDigests = const {},
+    Map<String, TklDirectUploadReceipt> directReceipts = const {},
+  }) : tklContentDigests = Map<String, TklContentDigest>.unmodifiable(tklContentDigests),
+       updatedAt = updatedAt.toUtc(),
        leaseToken = leaseToken == null ? null : j.token(leaseToken),
        leaseExpiresAt = leaseExpiresAt?.toUtc(),
        nextAttemptAt = nextAttemptAt?.toUtc(),
@@ -255,12 +268,70 @@ final class SubmissionRecord {
          reservations,
        ),
        receipts = Map<String, SubmissionMaterialReceipt>.unmodifiable(receipts),
-       failureHistory = List<SubmissionFailure>.unmodifiable(failureHistory) {
+       failureHistory = List<SubmissionFailure>.unmodifiable(failureHistory),
+       directReceipts = Map<String, TklDirectUploadReceipt>.unmodifiable(
+         directReceipts,
+       ) {
     if (claimCount < 0 ||
         (state != SubmissionState.readyToSubmit && claimCount == 0)) {
       throw ArgumentError('Invalid claim count');
     }
+    if (request.tklDelivery != null &&
+        (acknowledgement != null ||
+            transportCheckpoint != null ||
+            this.reservations.isNotEmpty ||
+            this.receipts.isNotEmpty ||
+            state == SubmissionState.submitted)) {
+      throw ArgumentError('TKL progress and Studio acceptance are distinct.');
+    }
+    final materialKeys = request.materials.map((m) => m.key).toSet();
+    if ((this.tklContentDigests.isNotEmpty && request.tklDelivery == null) ||
+        !this.tklContentDigests.keys.every(materialKeys.contains)) {
+      throw ArgumentError('Content expectation does not match its TKL original.');
+    }
+    if (tklProgress != null) {
+      if (request.tklDelivery == null ||
+          tklProgress!.requestId != request.id ||
+          tklProgress!.resources.length != request.materials.length) {
+        throw ArgumentError(
+          'TKL progress does not match its committed request.',
+        );
+      }
+      for (var i = 0; i < request.materials.length; i++) {
+        final material = request.materials[i];
+        final progress = tklProgress!.resources[i];
+        final expected = this.tklContentDigests[material.key];
+        final requiresProof = this.tklContentDigests.isNotEmpty &&
+            {TklMaterialDeliveryState.readyToRegister,
+             TklMaterialDeliveryState.registering,
+             TklMaterialDeliveryState.registered}.contains(tklProgress!.state);
+        if ((progress.contentDigest != null && progress.contentDigest != expected) ||
+            (requiresProof && (expected == null || progress.contentDigest != expected ||
+                progress.verificationState != TklOriginalVerificationState.verified)) ||
+            progress.resourceId != material.key ||
+            progress.mediaType != material.original.mediaType ||
+            progress.byteLength != material.original.byteLength) {
+          throw ArgumentError(
+            'TKL original progress does not match its committed reference.',
+          );
+        }
+      }
+    }
     final keys = request.materials.map((m) => m.key).toSet();
+    for (final entry in this.directReceipts.entries) {
+      if (tklProgress?.transferMethod !=
+              TklMaterialTransferMethod.googleDriveResumable ||
+          entry.key != entry.value.resourceId ||
+          !request.materials.any(
+            (material) =>
+                material.key == entry.key &&
+                material.original.byteLength == entry.value.byteLength,
+          )) {
+        throw ArgumentError(
+          'Direct upload receipt does not match its retained delivery.',
+        );
+      }
+    }
     for (final entry in this.reservations.entries) {
       if (!keys.contains(entry.key) || entry.key != entry.value.key) {
         throw ArgumentError('Reservation does not match a request material');
@@ -312,6 +383,16 @@ final class SubmissionRecord {
             acknowledgement!.subjectId != request.subjectId ||
             this.receipts.length != keys.length) {
           throw ArgumentError('Invalid submitted record');
+        }
+      case SubmissionState.materialRegistered:
+        if (!noLease ||
+            nextAttemptAt != null ||
+            request.tklDelivery == null ||
+            tklProgress?.state != TklMaterialDeliveryState.registered ||
+            acknowledgement != null) {
+          throw ArgumentError(
+            'Material registration requires a confirmed TKL receipt.',
+          );
         }
       case SubmissionState.submissionFailed:
         if (!noLease ||
@@ -366,6 +447,15 @@ final class SubmissionRecord {
   /// a trusted refusal/no-send attribution for that exact nonlegacy claim.
   final SubmissionTransportCheckpoint? transportCheckpoint;
 
+  /// Last confirmed TKL progress; no Studio acknowledgement is fabricated.
+  final TklMaterialDeliverySnapshot? tklProgress;
+
+  /// Provider PUT completion awaiting independent TKL confirmation; contains no URI.
+  final Map<String, TklDirectUploadReceipt> directReceipts;
+
+  /// Immutable actual retained-byte expectations, keyed by accepted material.
+  final Map<String, TklContentDigest> tklContentDigests;
+
   /// Current failure only when failed; null during retry, progress or success.
   SubmissionFailure? get lastFailure =>
       state == SubmissionState.submissionFailed ? failureHistory.last : null;
@@ -382,9 +472,19 @@ final class SubmissionRecord {
       nextAttemptAt == other.nextAttemptAt &&
       j.deepEquals(reservations, other.reservations) &&
       j.deepEquals(receipts, other.receipts) &&
+      j.deepEquals(directReceipts, other.directReceipts) &&
+      j.deepEquals(tklContentDigests, other.tklContentDigests) &&
       j.deepEquals(failureHistory, other.failureHistory) &&
       acknowledgement == other.acknowledgement &&
-      transportCheckpoint == other.transportCheckpoint;
+      transportCheckpoint == other.transportCheckpoint &&
+      j.deepEquals(
+        tklProgress == null
+            ? null
+            : TklMaterialDeliveryCodec.snapshotToJson(tklProgress!),
+        other.tklProgress == null
+            ? null
+            : TklMaterialDeliveryCodec.snapshotToJson(other.tklProgress!),
+      );
   @override
   int get hashCode => Object.hash(
     request,
@@ -396,8 +496,15 @@ final class SubmissionRecord {
     nextAttemptAt,
     j.deepHash(reservations),
     j.deepHash(receipts),
+    j.deepHash(directReceipts),
+    j.deepHash(tklContentDigests),
     j.deepHash(failureHistory),
     acknowledgement,
     transportCheckpoint,
+    j.deepHash(
+      tklProgress == null
+          ? null
+          : TklMaterialDeliveryCodec.snapshotToJson(tklProgress!),
+    ),
   );
 }
