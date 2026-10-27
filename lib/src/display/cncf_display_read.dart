@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 part 'cncf_display_mutation.dart';
+part 'cncf_display_business.dart';
 
 /// A redacted read failure; payloads, URIs and credentials are never reflected.
 final class CncfDisplayReadException implements Exception {
@@ -303,6 +304,28 @@ final class CncfDisplayReadClient {
     );
   }
 
+  /// Invokes one independently configured ordinary resource Business operation.
+  /// The receipt is separate from Display; no reload or replay is performed.
+  Future<CncfDisplayBusinessResult> invokeBusiness({
+    required CncfDisplayBusinessBinding binding,
+    required CncfDisplayRead observation,
+  }) async {
+    if (_closed) _fail('disposed');
+    if (_commandInFlight) _fail('busy');
+    final request = _prepareBusiness(profile, binding, observation);
+    return _exchange(
+      suffix: '${binding.service}/${binding.operation}.json',
+      detail: true,
+      method: 'POST',
+      command: true,
+      displaySelectors: false,
+      bodyContentType: 'application/x-www-form-urlencoded;charset=utf-8',
+      body: 'resourceId=${Uri.encodeQueryComponent(request.resourceId)}',
+      ifMatch: '"revision-${request.revision}"',
+      decode: (raw) => _decodeBusinessResult(raw, binding, request),
+    );
+  }
+
   /// Retires this flow without closing the borrowed HTTP client.
   void dispose() {
     _closed = true;
@@ -340,6 +363,8 @@ final class CncfDisplayReadClient {
     String? body,
     String? ifMatch,
     bool command = false,
+    bool displaySelectors = true,
+    String bodyContentType = 'application/json',
     Set<CncfDisplayFieldLocator> requestedFields = const {},
     void Function(T)? onDecoded,
   }) async {
@@ -377,11 +402,13 @@ final class CncfDisplayReadClient {
             .resolve(suffix)
             .replace(
               queryParameters: {
-                'resourceType': profile.resourceType,
-                'screenId': detail
-                    ? profile.detailScreenId
-                    : profile.listScreenId,
-                'resourceId': ?resourceId,
+                if (displaySelectors) ...{
+                  'resourceType': profile.resourceType,
+                  'screenId': detail
+                      ? profile.detailScreenId
+                      : profile.listScreenId,
+                  'resourceId': ?resourceId,
+                },
                 'textus.output.shape': 'envelope',
               },
             );
@@ -396,7 +423,7 @@ final class CncfDisplayReadClient {
           'X-CNCF-Presentation-Context': _contextHeader(_context),
         });
         if (body != null) {
-          request.headers['Content-Type'] = 'application/json';
+          request.headers['Content-Type'] = bodyContentType;
           request.bodyBytes = utf8.encode(body);
         }
         if (ifMatch != null) request.headers['If-Match'] = ifMatch;
