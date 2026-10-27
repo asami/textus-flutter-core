@@ -3,11 +3,20 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+part 'cncf_display_mutation.dart';
+
 /// A redacted read failure; payloads, URIs and credentials are never reflected.
 final class CncfDisplayReadException implements Exception {
-  const CncfDisplayReadException(this.code, {this.statusCode});
+  const CncfDisplayReadException(
+    this.code, {
+    this.statusCode,
+    this.failure,
+    this.outcomeUnknown = false,
+  });
   final String code;
   final int? statusCode;
+  final CncfDisplayFailure? failure;
+  final bool outcomeUnknown;
   @override
   String toString() => 'CncfDisplayReadException($code)';
 }
@@ -22,6 +31,7 @@ final class CncfDisplayReadProfile {
     required Map<String, Object?> semanticContract,
     required Map<String, Object?> provenance,
     required this.definitionRevision,
+    this.mutationRevision,
   }) : semanticContract = _freeze(semanticContract) as Map<String, Object?>,
        provenance = _freeze(provenance) as Map<String, Object?> {
     for (final id in [
@@ -33,6 +43,7 @@ final class CncfDisplayReadProfile {
     ]) {
       _id(id);
     }
+    if (mutationRevision != null) _id(mutationRevision);
   }
   final String componentId;
   final String resourceType;
@@ -41,6 +52,7 @@ final class CncfDisplayReadProfile {
   final Map<String, Object?> semanticContract;
   final Map<String, Object?> provenance;
   final String definitionRevision;
+  final String? mutationRevision;
 }
 
 /// An exact CNCF resource observation. Long revisions remain decimal strings.
@@ -179,7 +191,7 @@ final class CncfDisplayRead {
   }
 }
 
-/// Authenticated read-only CNCF transport. No automatic retries or redirects.
+/// Authenticated CNCF transport. No automatic retries or redirects.
 ///
 /// Client ownership stays with the caller. HTTPS is mandatory except an explicit
 /// loopback development target; token lookup happens per request and is ephemeral.
@@ -238,12 +250,57 @@ final class CncfDisplayReadClient {
   int _generation = 0;
   bool _closed = false;
   bool _ownsClient = false;
+  bool _commandInFlight = false;
   Completer<void>? _activeAbort;
 
   Future<CncfDisplayRead> query() => _read(false, null);
   Future<CncfDisplayRead> read(String resourceId) {
     _id(resourceId);
     return _read(true, resourceId);
+  }
+
+  /// Gets inert field metadata against independently pinned mutation authority.
+  Future<CncfDisplayMutationDescriptor> describeMutation() async {
+    _requireMutationProfile(profile);
+    return _exchange(
+      suffix: 'display/describeMutation.json',
+      detail: true,
+      decode: (raw) => _decodeMutationDescriptor(raw, profile),
+    );
+  }
+
+  /// Sends one update against the original formal Detail observation.
+  Future<CncfDisplayMutationResult> update({
+    required CncfDisplayMutationDescriptor descriptor,
+    required CncfDisplayRead observation,
+    required List<CncfDisplayTextChange> changes,
+  }) async {
+    if (_closed) _fail('disposed');
+    if (_commandInFlight) _fail('busy');
+    final request = _prepareTextUpdate(
+      profile,
+      descriptor,
+      observation,
+      changes,
+    );
+    return _exchange(
+      suffix: 'display/update.json',
+      detail: true,
+      method: 'PUT',
+      command: true,
+      body: request.body,
+      ifMatch: '"revision-${request.revision}"',
+      requestedFields: request.requestedFields,
+      decode: (raw) =>
+          _decodeMutationResult(raw, profile, descriptor, observation),
+      onDecoded: (result) {
+        if (result.presentationContext != null) {
+          _context = result.presentationContext;
+        } else if (result.display != null) {
+          _context = result.display!.presentationContext;
+        }
+      },
+    );
   }
 
   /// Retires this flow without closing the borrowed HTTP client.
@@ -256,14 +313,48 @@ final class CncfDisplayReadClient {
     if (_ownsClient) _client.close();
   }
 
-  Future<CncfDisplayRead> _read(bool detail, String? resourceId) async {
+  Future<CncfDisplayRead> _read(bool detail, String? resourceId) => _exchange(
+    suffix: detail ? 'display/read.json' : 'display/query.json',
+    detail: detail,
+    resourceId: resourceId,
+    decode: (raw) {
+      final lexicalEnvelope = _object(_StrictMutationJson(raw).parse());
+      _readIntegerLexemes(lexicalEnvelope['data'], profile);
+      final envelope = _object(jsonDecode(raw));
+      return CncfDisplayRead.decode(
+        _object(envelope['data']),
+        profile,
+        detail: detail,
+        expectedResourceId: resourceId,
+      );
+    },
+    onDecoded: (decoded) => _context = decoded.presentationContext,
+  );
+
+  Future<T> _exchange<T>({
+    required String suffix,
+    required bool detail,
+    required T Function(String) decode,
+    String method = 'GET',
+    String? resourceId,
+    String? body,
+    String? ifMatch,
+    bool command = false,
+    Set<CncfDisplayFieldLocator> requestedFields = const {},
+    void Function(T)? onDecoded,
+  }) async {
     if (_closed) _fail('disposed');
+    if (_commandInFlight) _fail('busy');
+    // Reservation precedes token lookup and every await. Safe GETs may replace
+    // one another; no operation may replace a dispatched or waiting command.
+    if (command) _commandInFlight = true;
     final generation = ++_generation;
     final previous = _activeAbort;
     if (previous != null && !previous.isCompleted) previous.complete();
     final abort = Completer<void>();
     _activeAbort = abort;
     var retired = false;
+    var dispatched = false;
     StreamSubscription<List<int>>? bodySubscription;
     void check() {
       if (retired || _closed || generation != _generation) _fail('superseded');
@@ -283,7 +374,7 @@ final class CncfDisplayReadClient {
           _fail('authenticationRequired');
         }
         final uri = endpoint
-            .resolve(detail ? 'display/read.json' : 'display/query.json')
+            .resolve(suffix)
             .replace(
               queryParameters: {
                 'resourceType': profile.resourceType,
@@ -295,7 +386,7 @@ final class CncfDisplayReadClient {
               },
             );
         final request = http.AbortableRequest(
-          'GET',
+          method,
           uri,
           abortTrigger: abort.future,
         )..followRedirects = false;
@@ -304,25 +395,33 @@ final class CncfDisplayReadClient {
           'Authorization': 'Bearer $token',
           'X-CNCF-Presentation-Context': _contextHeader(_context),
         });
+        if (body != null) {
+          request.headers['Content-Type'] = 'application/json';
+          request.bodyBytes = utf8.encode(body);
+        }
+        if (ifMatch != null) request.headers['If-Match'] = ifMatch;
+        dispatched = true;
         final response = await _client.send(request);
         if (retired || _closed || generation != _generation) {
           await response.stream.listen((_) {}, onError: (Object _) {}).cancel();
           _fail('superseded');
         }
         final bytes = <int>[];
-        final body = Completer<void>();
+        final responseBodyCompleted = Completer<void>();
         unawaited(
           abort.future.then((_) {
-            if (!body.isCompleted) {
-              body.completeError(const CncfDisplayReadException('superseded'));
+            if (!responseBodyCompleted.isCompleted) {
+              responseBodyCompleted.completeError(
+                const CncfDisplayReadException('superseded'),
+              );
             }
           }),
         );
         bodySubscription = response.stream.listen(
           (chunk) {
-            if (body.isCompleted) return;
+            if (responseBodyCompleted.isCompleted) return;
             if (bytes.length + chunk.length > 262144) {
-              body.completeError(
+              responseBodyCompleted.completeError(
                 const CncfDisplayReadException('responseTooLarge'),
               );
             } else {
@@ -330,18 +429,36 @@ final class CncfDisplayReadClient {
             }
           },
           onError: (Object error, StackTrace stack) {
-            if (!body.isCompleted) body.completeError(error, stack);
+            if (!responseBodyCompleted.isCompleted) {
+              responseBodyCompleted.completeError(error, stack);
+            }
           },
           onDone: () {
-            if (!body.isCompleted) body.complete();
+            if (!responseBodyCompleted.isCompleted) {
+              responseBodyCompleted.complete();
+            }
           },
         );
-        await body.future;
+        await responseBodyCompleted.future;
         check();
         if (response.statusCode != 200) {
+          CncfDisplayFailure? failure;
+          if (command) {
+            try {
+              failure = _decodeDisplayFailure(
+                utf8.decode(bytes),
+                profile,
+                requestedFields,
+              );
+            } catch (_) {
+              // An unadmitted failure never supplies command semantics.
+            }
+          }
           throw CncfDisplayReadException(
             'httpRejected',
             statusCode: response.statusCode,
+            failure: failure,
+            outcomeUnknown: command && failure == null,
           );
         }
         if ((response.headers['content-type'] ?? '')
@@ -353,17 +470,9 @@ final class CncfDisplayReadClient {
           _fail('contentTypeInvalid');
         }
         final raw = utf8.decode(bytes);
-        _uniqueJsonKeys(raw);
-        final envelope = _object(jsonDecode(raw));
-        // CNCF synchronous success carries the OBJECT in data; no raw-payload fallback.
-        final data = _object(envelope['data']);
-        final decoded = CncfDisplayRead.decode(
-          data,
-          profile,
-          detail: detail,
-          expectedResourceId: resourceId,
-        );
-        _context = decoded.presentationContext;
+        final decoded = decode(raw);
+        check();
+        onDecoded?.call(decoded);
         return decoded;
       })().timeout(
         timeout,
@@ -372,16 +481,27 @@ final class CncfDisplayReadClient {
           _fail('timeout');
         },
       );
-    } on CncfDisplayReadException {
+    } on CncfDisplayReadException catch (error) {
+      if (command && dispatched && error.failure == null) {
+        throw CncfDisplayReadException(
+          error.code,
+          statusCode: error.statusCode,
+          outcomeUnknown: true,
+        );
+      }
       rethrow;
     } catch (_) {
-      _fail('invalidResponseOrConnection');
+      throw CncfDisplayReadException(
+        'invalidResponseOrConnection',
+        outcomeUnknown: command && dispatched,
+      );
     } finally {
       stop();
       final subscription = bodySubscription;
       if (subscription != null) {
         unawaited(subscription.cancel().catchError((Object _) {}));
       }
+      if (command) _commandInFlight = false;
     }
   }
 }
@@ -645,41 +765,5 @@ void _bounded(Object? value, int maxBytes) {
             rune >= 0xd800 && rune <= 0xdfff || rune >= 0x80 && rune <= 0x9f,
       )) {
     _fail('contextValueInvalid');
-  }
-}
-
-// Standard JSON performs syntax decoding. This bounded lexical preflight also
-// rejects repeated decoded object keys before dart:convert could collapse them.
-void _uniqueJsonKeys(String text) {
-  final stack = <Set<String>?>[];
-  for (var i = 0; i < text.length; i++) {
-    final c = text[i];
-    if (c == '{' || c == '[') {
-      stack.add(c == '{' ? <String>{} : null);
-      if (stack.length > 64) _fail('jsonDepthExceeded');
-    } else if (c == '}' || c == ']') {
-      if (stack.isEmpty) _fail('jsonInvalid');
-      stack.removeLast();
-    } else if (c == '"') {
-      final start = i++;
-      while (i < text.length && text[i] != '"') {
-        if (text[i] == '\\') i++;
-        i++;
-      }
-      if (i >= text.length) _fail('jsonInvalid');
-      var next = i + 1;
-      while (next < text.length && ' \n\r\t'.contains(text[next])) {
-        next++;
-      }
-      if (next < text.length && text[next] == ':') {
-        if (stack.isEmpty ||
-            stack.last == null ||
-            !stack.last!.add(
-              jsonDecode(text.substring(start, i + 1)) as String,
-            )) {
-          _fail('duplicateJsonMember');
-        }
-      }
-    }
   }
 }
