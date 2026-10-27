@@ -37,6 +37,7 @@ export 'src/capture/photo_capture_service.dart';
 export 'src/display/separated_display_regions.dart';
 export 'src/display/side_by_side_display_regions.dart';
 export 'src/display/display_protocol.dart';
+export 'src/display/cncf_display_read.dart';
 export 'src/display/presentation_context.dart';
 export 'src/display/display_transport.dart';
 export 'src/display/scripted_display_transport.dart';
