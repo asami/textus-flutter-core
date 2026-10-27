@@ -1,0 +1,19 @@
+name: textus_flutter_core_android_audio
+description: Android original audio and saved-input Basic transcription for Textus Core.
+version: 0.0.1
+publish_to: none
+
+environment:
+  sdk: ^3.13.3
+  flutter: ">=3.47.4"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: org.textus.flutter.core.audio
+        pluginClass: TextusFlutterCoreAndroidAudioPlugin

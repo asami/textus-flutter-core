@@ -1,24 +1,40 @@
-# Development phases
+# Core Phase index
 
-## Planned TKL delivery follow-on — 2026-10-24
+## Accepted TKL delivery follow-on — 2026-10-27
 
 [TKL-managed Material delivery](tkl-managed-material-delivery-plan.md) adds the
-TKL client/configuration boundary to the existing submission runtime for App
-Phase 6.3. It uses both Shared Drive and My Drive shared folders, with Workspace
-first. This workstream is planned, not accepted. The older status projection
-below must be reconciled with the App's accepted dependency worktree at entry;
-it must not cause reimplementation or reopening of already accepted Core work.
+TKL client/configuration boundary to the existing submission runtime for
+[App Phase 6.3](../../../../Project2026/nict-editing-studio-app/docs/phase/phase-6.3.md).
+The bounded follow-on is accepted and closed. Workspace Shared Drive has actual
+acceptance; My Drive shares the public contract with controlled coverage.
+Original Phase 2 stays closed; its prior planning text does not require replay
+or reimplementation. Independent on-device AI follow-ups remain separate.
 
-| Phase | Recorded status | Scope |
+## Current accepted delivery
+
+| Phase | Status | Delivery |
 | --- | --- | --- |
-| [Phase 1](phase-1.md) | complete | Public capture contracts |
-| [Phase 1.1](phase-1.1.md) | planned | Service/Provider foundation |
-| [Phase 1.2](phase-1.2.md) | planned | Capture providers and reference application |
-| [Phase 1.3](phase-1.3.md) | planned | Workflow/consumer and Phase 2 handoff |
-| [Phase 2](phase-2.md) | planned | Background transfer runtime and state |
+| [Phase 2](phase-2.md) | closed | Generic background transfer runtime, durable state, targeted retry and public consumer handoff. |
 
-Statuses above project the existing Phase documents, not a new historical audit.
-Phase 2 entry verifies the actual consumed public handoff and connected app work.
-[Phase 2 checklist](phase-2-checklist.md) owns its completion evidence; TFAF Phase 3
-and Editing Studio App Phase 6.1 consume its handoff. AI follow-ups from Phase 1.3
-are not silently included in or closed by this bounded transfer delivery.
+The [Phase 2 checklist](phase-2-checklist.md) and
+[completion journal](../journal/2026/10/2026-10-11-phase-2-completion.md)
+identify actual reviews, validation and the required distinct release receipt.
+TFAF Phase 3 and Editing Studio App Phase 6.1 retain their own acceptance and
+release obligations. This index starts no successor work.
+
+## Earlier Phase records
+
+- [Phase 1](phase-1.md) and [its checklist](phase-1-checklist.md)
+- [Phase 1.1](phase-1.1.md)
+- [Phase 1.2](phase-1.2.md)
+- [Phase 1.3](phase-1.3.md)
+
+Their historical statuses and separate on-device AI follow-ups are retained in
+their authoritative documents; Phase 2 closure does not accept that work.
+
+## Planned sensitive interaction follow-on
+
+[Phase 3](phase-3.md) retains the GitHub Sensitive Interaction proposal under
+the user-approved number and targets TFAF Phase 4. It remains PLANNED with no
+execution started. The [numbering decision](../journal/2026/10/2026-10-27-phase-plan-reconciliation.md)
+preserves completed Phase 2 and both histories.
