@@ -80,3 +80,10 @@ If Textus Flutter Core later owns native platform code rather than depending on
 an existing Flutter plugin, that capability should be introduced as a Flutter
 plugin package with an example consumer—not as an application scaffold or an
 SBT subproject.
+
+## Planned successor
+
+[Phase 2 - Background Transfer Runtime and State](docs/phase/phase-2.md)
+concretizes the Local Commit / Deferred Sync handoff for app Phase 6.1 and TFAF
+Phase 3. See the [checklist](docs/phase/phase-2-checklist.md) and
+[Phase index](docs/phase/README.md). Implementation is not started by this plan.
