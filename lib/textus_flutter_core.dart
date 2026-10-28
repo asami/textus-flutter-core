@@ -32,6 +32,10 @@ export 'src/capture/recognition_report.dart';
 export 'src/capture/recognition_report_codec.dart';
 export 'src/capture/recognition_repository.dart';
 export 'src/capture/photo_capture_service.dart';
+export 'src/capture/image_region.dart';
+export 'src/capture/image_region_processing.dart';
+export 'src/capture/image_region_workspace.dart';
+export 'src/capture/image_region_workspace_codec.dart';
 
 // Provisional development-only Display protocol and Presentation Context.
 export 'src/display/separated_display_regions.dart';
