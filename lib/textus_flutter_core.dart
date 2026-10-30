@@ -58,6 +58,10 @@ export 'src/repository/capture_repository.dart';
 export 'src/repository/local_capture_store.dart';
 export 'src/repository/file_capture_store.dart';
 
+// Source-authoritative local lexical retrieval and a durable derived index.
+export 'src/retrieval/material_retrieval.dart';
+export 'src/retrieval/local_material_retrieval_service.dart';
+
 // Durable explicit submission intent, resumable checkpoints and borrowed ports.
 export 'src/submission/submission_request.dart';
 export 'src/submission/registered_material_submission.dart';
