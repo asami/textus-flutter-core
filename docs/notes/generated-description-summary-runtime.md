@@ -90,7 +90,8 @@ mechanism.
 
 `GeminiNanoGeneratedDraftProvider` identifies itself as
 `gemini-nano-generated-draft` and uses prompt template
-`textus.generated-draft.ja.v1`. Only non-Web Android and language `ja` reach the
+`textus.generated-draft.ja.v2`. Historical attempts retain their original v1
+template and exact prompt. Only non-Web Android and language `ja` reach the
 native bridge. Other platforms/languages return explicit unsupported snapshots
 and generation failures without channel calls. The adapter uses the existing
 `org.textus.flutter.core/genai.v1` channel. Its four native probe states map to
@@ -99,11 +100,14 @@ all other native states require a nonblank reason. Missing registration is
 `nativeBridgeUnavailable`; actual native and malformed-probe descriptions remain
 unavailable reasons. A probe never qualifies Japanese output quality.
 
-The image-description prompt asks for only visible content, accurate readable
-text, no invented unknown details and an editable Japanese description body. The
-text-summary prompt asks for a concise Japanese editable summary, no expansion of
-short sources or invented facts/quotations, and treatment of source instructions
-as data. The exact original source text is encoded with `jsonEncode` as one JSON
+The image-description prompt asks for visible features and excludes guessed
+unreadable text, titles, languages and document types. The text-summary prompt
+asks for source content only, permits a single bullet for a short source,
+excludes instructions and explanatory additions, and treats source instructions
+as data. These are prompt requests, not factual-accuracy guarantees. Actual
+device qualification found incorrect book-title readings even with v2; source
+comparison and human review remain necessary. The exact original source text
+is encoded with `jsonEncode` as one JSON
 string between `BEGIN_SOURCE_JSON` and `END_SOURCE_JSON`. Prompt construction
 preserves linefeeds and never trims or truncates source text. Prompt construction
 does not probe, prepare or generate.

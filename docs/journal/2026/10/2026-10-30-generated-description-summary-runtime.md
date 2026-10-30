@@ -98,3 +98,26 @@ Gradle, native compile or device execution result is asserted here. Actual
 Japanese quality remains unqualified until real-device evidence exists; an
 available probe alone cannot establish that quality. Independent review,
 validation and Phase/Step acceptance remain parent-owned.
+
+## Connected Book qualification and prompt correction
+
+The subsequent Book integration exercised the real `nano-v4-full` model with
+saved original/crop images, a retained Japanese transcript and a longer Japanese
+annotation. Native generation, explicit decisions, cancellation and durable
+reopen succeeded. The original v1 prompt leaked explanatory instructions into
+the short summary. The v2 prompt removes that wording, restricts summaries to
+source content and discourages guessed image details. Existing focused provider,
+service and representation checks pass (132 cases); Core analysis reports no
+issues. Old v1 attempts retain their original provenance without migration.
+
+The v2 device run completed the same route and removed the observed short-summary
+instruction leakage. Image descriptions still misread book titles, so this is
+an editable, source-compared drafting capability, without bibliographic or OCR
+accuracy assurance. App records own the complete integrated acceptance and
+preservation correction; final owning validation and independent review remain
+separate gates.
+
+The connected Book Step independently accepted the v2 correction together with
+source/decision persistence and real supported Android operation. The factual
+image-description limits remain a separately recorded provider-quality task.
+Phase-wide review and final owning full validation are still required.
