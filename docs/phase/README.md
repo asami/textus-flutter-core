@@ -1,5 +1,23 @@
 # Core Phase index
 
+## Planned media input/capability integration — 2026-10-31
+
+[Shared media capabilities](media-input-capabilities-plan.md) provide image
+import and platform/device/permission-aware capture, recording and playback
+for App Phase 7 ESA7-08. Web import is the baseline; unknown availability is not
+hardware absence. Framework owns common controls/reasons. Existing native
+providers and submission flow are reused; no closed Phase is reopened.
+
+## Planned User Account authentication integration — 2026-10-31
+
+[Common authentication client](user-account-authentication-integration-plan.md)
+uses textus-user-account as the human authentication/session authority, with
+CNCF security enforcement. Core owns shared client/state, platform credentials
+and authenticated transport; Framework owns common login UI. Deliver native
+support for App 6.10 first, then browser support for App 7, coordinated with
+Studio Server 5. This bounded workstream preserves the broader planned Phase 3
+and all closed phases; no execution or acceptance is claimed here.
+
 ## Accepted TKL delivery follow-on — 2026-10-27
 
 [TKL-managed Material delivery](tkl-managed-material-delivery-plan.md) adds the

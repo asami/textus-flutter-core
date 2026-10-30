@@ -14,6 +14,11 @@ state.
 
 ## Planned work
 
+The [User Account integration workstream](user-account-authentication-integration-plan.md)
+delivers the bounded common login client needed by Studio/App before the full
+Sensitive Interaction program. Reuse its accepted pieces here; it does not
+close this Phase or waive dependencies of any selected sensitive capability.
+
 - protected storage abstraction for actual OAuth/session/refresh credentials
   using Android/iOS platform facilities;
 - provider adapter boundary for UI-inclusive Sensitive Interaction;
