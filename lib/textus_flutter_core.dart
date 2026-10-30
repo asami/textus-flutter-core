@@ -91,3 +91,4 @@ export 'src/settings/settings_storage.dart';
 export 'src/settings/settings_lifecycle_controller.dart';
 export 'src/settings/local_settings_storage.dart';
 export 'src/settings/recognition_settings.dart';
+export 'src/capture/structured_candidates.dart';
