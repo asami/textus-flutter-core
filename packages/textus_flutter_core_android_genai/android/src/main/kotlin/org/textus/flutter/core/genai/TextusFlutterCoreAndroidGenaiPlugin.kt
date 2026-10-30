@@ -28,7 +28,7 @@ class TextusFlutterCoreAndroidGenaiPlugin : FlutterPlugin, ActivityAware,
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-        if (call.method !in setOf("probe", "prepare", "recognize")) {
+        if (call.method !in setOf("probe", "prepare", "recognize", "generateDraft", "cancelDraft")) {
             result.notImplemented()
             return
         }

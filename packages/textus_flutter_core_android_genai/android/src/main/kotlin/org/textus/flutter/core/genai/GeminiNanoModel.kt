@@ -20,6 +20,8 @@ internal interface GeminiNanoModel {
     suspend fun modelName(): String
     fun download(): Flow<GeminiNanoDownload>
     suspend fun generate(bytes: ByteArray, prompt: String, cleanupFailures: MutableList<String>): String
+    suspend fun generateDraft(bytes: ByteArray?, prompt: String, cleanupFailures: MutableList<String>): String =
+        throw GeminiNanoFailure("unsupportedOperation", "This model does not support generated drafts")
     fun close()
 }
 
@@ -76,14 +78,32 @@ internal class AicoreGeminiNanoModel(
         bytes: ByteArray,
         prompt: String,
         cleanupFailures: MutableList<String>,
+    ): String = infer(bytes, prompt, cleanupFailures, requireNonblank = true)
+
+    override suspend fun generateDraft(
+        bytes: ByteArray?,
+        prompt: String,
+        cleanupFailures: MutableList<String>,
+    ): String = infer(bytes, prompt, cleanupFailures, requireNonblank = false)
+
+    private suspend fun infer(
+        bytes: ByteArray?,
+        prompt: String,
+        cleanupFailures: MutableList<String>,
+        requireNonblank: Boolean,
     ): String = withContext(Dispatchers.Default) {
         // Allocation and its finally stay in the same owner even on cancellation.
         var bitmap: Bitmap? = null
         try {
-            val image = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                ?: throw GeminiNanoFailure("invalidArguments", "Original image bytes could not be decoded")
-            bitmap = image
-            val request = GenerateContentRequest.Builder(ImagePart(image), TextPart(prompt)).apply {
+            val builder = if (bytes == null) {
+                GenerateContentRequest.Builder(TextPart(prompt))
+            } else {
+                val image = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    ?: throw GeminiNanoFailure("invalidArguments", "Original image bytes could not be decoded")
+                bitmap = image
+                GenerateContentRequest.Builder(ImagePart(image), TextPart(prompt))
+            }
+            val request = builder.apply {
                 temperature = 0.0f
                 candidateCount = 1
                 maxOutputTokens = 512
@@ -97,8 +117,9 @@ internal class AicoreGeminiNanoModel(
                 throw GeminiNanoFailure("inputTooLarge", "Request tokens $tokens plus 512 output tokens exceed model limit $limit")
             }
             val candidates = model.generateContent(request).candidates
-            if (candidates.size != 1 || candidates.single().text.isBlank()) {
-                throw GeminiNanoFailure("emptyResponse", "AICore returned ${candidates.size} candidates; exactly one nonblank text is required")
+            if (candidates.size != 1 || (requireNonblank && candidates.single().text.isBlank())) {
+                val requirement = if (requireNonblank) "one nonblank text" else "one text candidate"
+                throw GeminiNanoFailure("emptyResponse", "AICore returned ${candidates.size} candidates; exactly $requirement is required")
             }
             candidates.single().text
         } finally {

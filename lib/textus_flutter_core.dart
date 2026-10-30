@@ -20,6 +20,10 @@ export 'src/capture/capture_item.dart';
 export 'src/capture/capture_material.dart';
 export 'src/capture/capture_profile.dart';
 export 'src/capture/capture_session.dart';
+export 'src/capture/generated_draft.dart';
+export 'src/capture/generated_draft_service.dart';
+export 'src/capture/text_revision_comparison.dart';
+export 'src/capture/gemini_nano_generated_draft_provider.dart';
 export 'src/capture/photo_capture.dart';
 export 'src/capture/recognition_operation_context.dart';
 export 'src/capture/camera_service.dart';
@@ -32,6 +36,10 @@ export 'src/capture/recognition_report.dart';
 export 'src/capture/recognition_report_codec.dart';
 export 'src/capture/recognition_repository.dart';
 export 'src/capture/photo_capture_service.dart';
+export 'src/capture/image_region.dart';
+export 'src/capture/image_region_processing.dart';
+export 'src/capture/image_region_workspace.dart';
+export 'src/capture/image_region_workspace_codec.dart';
 
 // Provisional development-only Display protocol and Presentation Context.
 export 'src/display/separated_display_regions.dart';
@@ -49,6 +57,10 @@ export 'src/display/display_session.dart';
 export 'src/repository/capture_repository.dart';
 export 'src/repository/local_capture_store.dart';
 export 'src/repository/file_capture_store.dart';
+
+// Source-authoritative local lexical retrieval and a durable derived index.
+export 'src/retrieval/material_retrieval.dart';
+export 'src/retrieval/local_material_retrieval_service.dart';
 
 // Durable explicit submission intent, resumable checkpoints and borrowed ports.
 export 'src/submission/submission_request.dart';
@@ -87,3 +99,4 @@ export 'src/settings/settings_storage.dart';
 export 'src/settings/settings_lifecycle_controller.dart';
 export 'src/settings/local_settings_storage.dart';
 export 'src/settings/recognition_settings.dart';
+export 'src/capture/structured_candidates.dart';
