@@ -2,12 +2,14 @@ package org.textus.flutter.core.genai
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -24,9 +26,13 @@ class GeminiNanoSessionTest {
         val session = GeminiNanoSession(GeminiNanoRequestRunner(factory), StandardTestDispatcher(testScheduler))
         val outcomes = mutableListOf<GeminiNanoOutcome>()
         // When all operations are requested before resume and then a resumed probe runs.
-        for (method in listOf("probe", "prepare", "recognize")) {
+        for (method in listOf("probe", "prepare", "recognize", "generateDraft")) {
             // Given this valid foreground-gated method.
-            val arguments = if (method == "recognize") arguments() else null
+            val arguments = when (method) {
+                "recognize" -> arguments()
+                "generateDraft" -> draftArguments()
+                else -> null
+            }
             // When it is submitted before any resumed Activity.
             session.submit(method, arguments, outcomes::add)
             // Then no model is created and this callback has an explicit foreground error.
@@ -37,7 +43,7 @@ class GeminiNanoSessionTest {
         session.submit("probe", null, outcomes::add)
         runCurrent()
         // Then the resumed probe succeeds after closing its one owned model.
-        assertEquals(4, outcomes.size)
+        assertEquals(5, outcomes.size)
         assertTrue(outcomes.last() is GeminiNanoOutcome.Success)
         assertEquals(1, factory.creates)
         assertEquals(1, model.closes)
@@ -56,9 +62,13 @@ class GeminiNanoSessionTest {
         val outcomes = mutableListOf<GeminiNanoOutcome>()
         session.submit("recognize", arguments(), outcomes::add)
         runCurrent()
-        for (method in listOf("probe", "prepare", "recognize")) {
+        for (method in listOf("probe", "prepare", "recognize", "generateDraft")) {
             // Given the original request still owning its native model.
-            val input = if (method == "recognize") arguments() else null
+            val input = when (method) {
+                "recognize" -> arguments()
+                "generateDraft" -> draftArguments()
+                else -> null
+            }
             // When another valid method overlaps it.
             session.submit(method, input, outcomes::add)
             // Then overlap rejects immediately without creating or closing another model.
@@ -76,7 +86,7 @@ class GeminiNanoSessionTest {
         }
         runCurrent()
         // Then both requests delivered once and the next operation acquired the guard.
-        assertEquals(5, outcomes.size)
+        assertEquals(6, outcomes.size)
         assertEquals(2, outcomes.count { it is GeminiNanoOutcome.Success })
         assertEquals(1, first.closes)
         assertEquals(2, factory.creates)
@@ -199,7 +209,7 @@ class GeminiNanoSessionTest {
 
     @Test
     fun shouldTimeoutEachMethodWithVirtualTimeAfterCleanupAndRecover() = runTest {
-        for ((method, deadline) in listOf("probe" to 20_000L, "prepare" to 600_000L, "recognize" to 90_000L)) {
+        for ((method, deadline) in listOf("probe" to 20_000L, "prepare" to 600_000L, "recognize" to 90_000L, "generateDraft" to 90_000L)) {
             // Given this method suspended within its fresh native model.
             val gate = CompletableDeferred<Unit>()
             val first = when (method) {
@@ -212,7 +222,11 @@ class GeminiNanoSessionTest {
             val outcomes = mutableListOf<GeminiNanoOutcome>()
             session.setForeground(true)
             // When its own deadline is advanced exactly to timeout.
-            session.submit(method, if (method == "recognize") arguments() else null, outcomes::add)
+            session.submit(method, when (method) {
+                "recognize" -> arguments()
+                "generateDraft" -> draftArguments()
+                else -> null
+            }, outcomes::add)
             runCurrent()
             advanceTimeBy(deadline - 1)
             runCurrent()
@@ -291,6 +305,237 @@ class GeminiNanoSessionTest {
         session.detachEngine()
     }
 
+    @Test
+    fun shouldAcknowledgeExactDraftCancellationBeforeItsScheduledBodyStarts() = runTest {
+        // Given a foreground draft whose body has not yet reached the dispatcher.
+        val model = Model()
+        val factory = Factory(model)
+        val session = GeminiNanoSession(GeminiNanoRequestRunner(factory), StandardTestDispatcher(testScheduler))
+        val terminal = mutableListOf<GeminiNanoOutcome>()
+        val control = mutableListOf<GeminiNanoOutcome>()
+        val overlap = mutableListOf<GeminiNanoOutcome>()
+        session.setForeground(true)
+        session.submit("generateDraft", draftArguments(), terminal::add)
+        // When a mismatched ID is refused and the exact request is canceled before execution.
+        session.submit("cancelDraft", mapOf("requestId" to "stale"), control::add)
+        session.submit("cancelDraft", mapOf("requestId" to "draft-1"), control::add)
+        session.submit("probe", null, overlap::add)
+        // Then acknowledgement is immediate but terminal callback and busy release are still pending.
+        assertEquals(listOf(false, true), control.map { (it as GeminiNanoOutcome.Success).value })
+        assertTrue(terminal.isEmpty())
+        assertEquals("busy", (overlap.single() as GeminiNanoOutcome.Error).code)
+        assertEquals(0, factory.creates)
+        runCurrent()
+        session.submit("cancelDraft", mapOf("requestId" to "draft-1"), control::add)
+        // Then exactly one canceled terminal outcome releases the owner without model allocation.
+        assertEquals(1, terminal.size)
+        assertEquals("canceled", (terminal.single() as GeminiNanoOutcome.Error).code)
+        assertEquals(emptyList<String>(), (terminal.single() as GeminiNanoOutcome.Error).details["cleanupFailures"])
+        assertEquals(false, (control.last() as GeminiNanoOutcome.Success).value)
+        assertEquals(0, model.closes)
+        assertEquals(0, factory.creates)
+        session.detachEngine()
+    }
+
+    @Test
+    fun shouldKeepCanceledDraftBusyUntilInferenceCleanupAndModelCloseFinish() = runTest {
+        // Given a native draft suspended in inference and separately held cancellation cleanup.
+        val infer = CompletableDeferred<Unit>()
+        val cleanup = CompletableDeferred<Unit>()
+        val model = Model(
+            generationGate = infer, draftCleanupGate = cleanup, draftCleanup = "image recycle warning",
+            closeFailure = IllegalStateException("canceled model close failed"),
+        )
+        val factory = Factory(model)
+        val session = GeminiNanoSession(GeminiNanoRequestRunner(factory), StandardTestDispatcher(testScheduler))
+        val terminal = mutableListOf<GeminiNanoOutcome>()
+        val control = mutableListOf<GeminiNanoOutcome>()
+        session.setForeground(true)
+        session.submit("generateDraft", draftArguments(operation = "textSummary"), terminal::add)
+        runCurrent()
+        // When the exact draft is canceled and enters its owned finally without finishing cleanup.
+        session.submit("cancelDraft", mapOf("requestId" to "draft-1"), control::add)
+        runCurrent()
+        // Then the control acknowledged true, but no terminal callback/model close or new owner exists yet.
+        assertEquals(true, (control.single() as GeminiNanoOutcome.Success).value)
+        assertTrue(terminal.isEmpty())
+        assertEquals(1, model.drafts)
+        assertEquals(0, model.closes)
+        for (method in listOf("probe", "prepare", "recognize", "generateDraft")) {
+            // Given the canceled draft still owns its unfinished cleanup.
+            val input = when (method) {
+                "recognize" -> arguments()
+                "generateDraft" -> draftArguments(id = "draft-2")
+                else -> null
+            }
+            val overlaps = mutableListOf<GeminiNanoOutcome>()
+            // When another regular operation attempts to overlap cleanup.
+            session.submit(method, input, overlaps::add)
+            // Then busy rejects before factory creation for every old and new regular method.
+            assertEquals("busy", (overlaps.single() as GeminiNanoOutcome.Error).code)
+            assertEquals(1, factory.creates)
+        }
+        // When the exact owner's cleanup is finally released.
+        cleanup.complete(Unit)
+        runCurrent()
+        runCurrent()
+        // Then one canceled callback follows its one close and contains every cleanup failure.
+        val failure = terminal.single() as GeminiNanoOutcome.Error
+        assertEquals("canceled", failure.code)
+        assertEquals(listOf("image recycle warning", "java.lang.IllegalStateException: canceled model close failed"), failure.details["cleanupFailures"])
+        assertEquals(1, model.closes)
+        assertFalse(infer.isCompleted)
+        assertEquals(0, model.downloads)
+        session.detachEngine()
+    }
+
+    @Test
+    fun shouldRefuseDraftCancellationForIdleOldMethodsAndDetachedSessions() = runTest {
+        for (method in listOf("probe", "prepare", "recognize")) {
+            // Given a valid idle control channel and this scheduled old request type.
+            val model = Model()
+            val factory = Factory(model)
+            val session = GeminiNanoSession(GeminiNanoRequestRunner(factory), StandardTestDispatcher(testScheduler))
+            val control = mutableListOf<GeminiNanoOutcome>()
+            val regular = mutableListOf<GeminiNanoOutcome>()
+            session.submit("cancelDraft", mapOf("requestId" to "draft-1"), control::add)
+            session.setForeground(true)
+            session.submit(method, if (method == "recognize") arguments() else null, regular::add)
+            // When cancelDraft uses an ID while an old operation owns the scheduled job.
+            session.submit("cancelDraft", mapOf("requestId" to "draft-1"), control::add)
+            // Then neither idle nor old operations can be canceled and controls allocate no model.
+            assertEquals(listOf(false, false), control.map { (it as GeminiNanoOutcome.Success).value })
+            assertEquals(0, factory.creates)
+            runCurrent()
+            // Then the old regular request completes normally with its one owned model.
+            assertTrue(regular.single() is GeminiNanoOutcome.Success)
+            assertEquals(1, model.closes)
+            assertEquals(1, factory.creates)
+            session.detachEngine()
+            session.submit("cancelDraft", mapOf("requestId" to "draft-1"), control::add)
+            assertEquals(false, (control.last() as GeminiNanoOutcome.Success).value)
+            assertEquals(1, factory.creates)
+        }
+    }
+
+    @Test
+    fun shouldRejectMalformedCancellationBeforeForegroundBusyAndFactoryAdmission() = runTest {
+        val invalid = listOf(
+            null, "draft-1", emptyMap<String, Any?>(), mapOf("requestId" to "draft-1", "extra" to true),
+            mapOf("requestId" to null), mapOf("requestId" to 4), mapOf("requestId" to ""),
+            mapOf("requestId" to " "), mapOf("requestId" to " draft-1"), mapOf("requestId" to "draft-1 "),
+            mapOf("requestId" to "draft\u0000id"),
+        )
+        // Given a background session and an observable native factory.
+        val factory = Factory(Model())
+        val session = GeminiNanoSession(GeminiNanoRequestRunner(factory), StandardTestDispatcher(testScheduler))
+        for (input in invalid) {
+            // Given this non-exact one-key cancellation envelope.
+            val outcomes = mutableListOf<GeminiNanoOutcome>()
+            // When the control method parses it before any foreground or regular busy gate.
+            session.submit("cancelDraft", input, outcomes::add)
+            // Then invalidArguments is immediate and allocates no model.
+            assertEquals("invalidArguments", (outcomes.single() as GeminiNanoOutcome.Error).code)
+            assertEquals(0, factory.creates)
+        }
+        session.detachEngine()
+    }
+
+    @Test
+    fun shouldIsolateStaleDraftCancellationWhenTerminalCallbackStartsANewerDraft() = runTest {
+        // Given a completed first draft whose callback starts a second held draft.
+        val first = Model()
+        val gate = CompletableDeferred<Unit>()
+        val second = Model(generationGate = gate)
+        val factory = Factory(first, second)
+        val session = GeminiNanoSession(GeminiNanoRequestRunner(factory), StandardTestDispatcher(testScheduler))
+        val earlier = mutableListOf<GeminiNanoOutcome>()
+        val later = mutableListOf<GeminiNanoOutcome>()
+        val controls = mutableListOf<GeminiNanoOutcome>()
+        session.setForeground(true)
+        session.submit("generateDraft", draftArguments()) {
+            // Then the first callback is after its native model has closed.
+            assertEquals(1, first.closes)
+            earlier.add(it)
+            session.submit("generateDraft", draftArguments(id = "draft-2"), later::add)
+        }
+        runCurrent()
+        // When the old request ID attempts cancellation while a newer exact owner is pending.
+        session.submit("cancelDraft", mapOf("requestId" to "draft-1"), controls::add)
+        val overlap = mutableListOf<GeminiNanoOutcome>()
+        session.submit("probe", null, overlap::add)
+        // Then stale cancellation is false and old completion has not cleared newer busy ownership.
+        assertEquals(false, (controls.single() as GeminiNanoOutcome.Success).value)
+        assertEquals("busy", (overlap.single() as GeminiNanoOutcome.Error).code)
+        assertTrue(later.isEmpty())
+        assertEquals(0, second.closes)
+        gate.complete(Unit)
+        runCurrent()
+        // Then both terminal callbacks delivered once with their own request identity and cleanup.
+        assertEquals("draft-1", ((earlier.single() as GeminiNanoOutcome.Success).value as Map<*, *>)["requestId"])
+        assertEquals("draft-2", ((later.single() as GeminiNanoOutcome.Success).value as Map<*, *>)["requestId"])
+        assertEquals(1, second.closes)
+        assertEquals(2, factory.creates)
+        session.detachEngine()
+    }
+
+    @Test
+    fun shouldCancelDraftsForPauseActivityDetachAndEngineDetachAfterOwnedCleanup() = runTest {
+        for (event in listOf("pause", "activityDetach", "engineDetach")) {
+            for (beforeBody in listOf(false, true)) {
+                // Given a foreground draft, either scheduled or awaiting native inference.
+                val gate = CompletableDeferred<Unit>()
+                val first = Model(generationGate = if (beforeBody) null else gate, closeFailure = IllegalStateException("lifecycle close warning"))
+                val next = Model()
+                val factory = Factory(first, next)
+                val session = GeminiNanoSession(GeminiNanoRequestRunner(factory), StandardTestDispatcher(testScheduler))
+                val outcomes = mutableListOf<GeminiNanoOutcome>()
+                session.setForeground(true)
+                session.submit("generateDraft", draftArguments(), outcomes::add)
+                if (!beforeBody) runCurrent()
+                // When this actual Activity/engine ownership ends.
+                when (event) {
+                    "pause" -> session.setForeground(false)
+                    "activityDetach" -> session.detachActivity()
+                    else -> session.detachEngine()
+                }
+                runCurrent()
+                // Then exactly one lifecycle failure follows cleanup, with no model if body never started.
+                val failure = outcomes.single() as GeminiNanoOutcome.Error
+                assertEquals(if (event == "engineDetach") "engineDetached" else "foregroundRequired", failure.code)
+                assertEquals(if (beforeBody) 0 else 1, first.closes)
+                assertEquals(if (beforeBody) emptyList<String>() else listOf("java.lang.IllegalStateException: lifecycle close warning"), failure.details["cleanupFailures"])
+                assertEquals(if (beforeBody) 0 else 1, factory.creates)
+                assertFalse(gate.isCompleted)
+                if (event == "engineDetach") {
+                    // Given a permanently detached engine after the canceled draft.
+                    val control = mutableListOf<GeminiNanoOutcome>()
+                    // When matching cancellation is requested after engine teardown.
+                    session.submit("cancelDraft", mapOf("requestId" to "draft-1"), control::add)
+                    // Then detached control acknowledgement is false with no new factory work.
+                    assertEquals(false, (control.single() as GeminiNanoOutcome.Success).value)
+                } else {
+                    // Given the Activity has resumed after terminal cancellation.
+                    session.setForeground(true)
+                    // When a fresh draft starts after its predecessor has released ownership.
+                    session.submit("generateDraft", draftArguments(id = "draft-2"), outcomes::add)
+                    runCurrent()
+                    // Then the fresh owner runs independently with its own exact identity and one close.
+                    assertEquals(2, outcomes.size)
+                    assertEquals("draft-2", ((outcomes.last() as GeminiNanoOutcome.Success).value as Map<*, *>)["requestId"])
+                    assertEquals(1, if (beforeBody) first.closes else next.closes)
+                    session.detachEngine()
+                }
+            }
+        }
+    }
+
+    private fun draftArguments(id: String = "draft-1", operation: String = "imageDescription") = mapOf(
+        "requestId" to id, "operation" to operation, "language" to "ja",
+        "bytes" to if (operation == "imageDescription") byteArrayOf(1, 2, 3) else null,
+        "prompt" to "日本語の正確なプロンプト", "expectedModelName" to "actual-model",
+    )
+
     private fun arguments() = mapOf("bytes" to byteArrayOf(1, 2, 3), "prompt" to "prompt", "expectedModelName" to null)
 
     private class Factory(vararg models: Model) : GeminiNanoModelFactory {
@@ -306,9 +551,12 @@ class GeminiNanoSessionTest {
         val generationGate: CompletableDeferred<Unit>? = null,
         val generationFailure: Throwable? = null,
         val closeFailure: Throwable? = null,
+        val draftCleanupGate: CompletableDeferred<Unit>? = null,
+        val draftCleanup: String? = null,
     ) : GeminiNanoModel {
         var downloads = 0
         var closes = 0
+        var drafts = 0
         override suspend fun status(): GeminiNanoReadiness { statusGate?.await(); return state }
         override suspend fun modelName(): String = "actual-model"
         override fun download(): Flow<GeminiNanoDownload> = flow {
@@ -321,6 +569,17 @@ class GeminiNanoSessionTest {
             generationGate?.await()
             generationFailure?.let { throw it }
             return "raw generation"
+        }
+        override suspend fun generateDraft(bytes: ByteArray?, prompt: String, cleanupFailures: MutableList<String>): String {
+            drafts++
+            try {
+                generationGate?.await()
+                generationFailure?.let { throw it }
+                return " 日本語の下書き "
+            } finally {
+                draftCleanupGate?.let { gate -> withContext(NonCancellable) { gate.await() } }
+                draftCleanup?.let { cleanupFailures.add(it) }
+            }
         }
         override fun close() { closes++; closeFailure?.let { throw it } }
     }

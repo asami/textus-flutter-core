@@ -37,6 +37,21 @@ internal class GeminiNanoSession(
     }
 
     fun submit(method: String, arguments: Any?, callback: (GeminiNanoOutcome) -> Unit) {
+        if (method == "cancelDraft") {
+            val requestId = try {
+                GeminiNanoRequest.parseDraftCancellation(arguments)
+            } catch (error: GeminiNanoFailure) {
+                callback(failure(error.code, nativeDescription(error), emptyList()))
+                return
+            }
+            val entry = active
+            val request = entry?.request
+            val matches = !detached && request is GeminiNanoRequest.Draft && request.requestId == requestId
+            if (matches) cancelActive("canceled")
+            // Acknowledgement records intent; finish still owns cleanup and release.
+            callback(GeminiNanoOutcome.Success(matches))
+            return
+        }
         val request = try {
             GeminiNanoRequest.parse(method, arguments)
         } catch (error: GeminiNanoFailure) {
