@@ -1,7 +1,12 @@
 import 'dart:typed_data';
 
-/// Independent derived products; neither operation replaces its original source.
-enum GeneratedDraftOperation { imageDescription, textSummary }
+/// Independent derived proposals; no operation replaces its original source.
+enum GeneratedDraftOperation {
+  imageDescription,
+  textSummary,
+  textProofreading,
+  textReadability,
+}
 
 enum GeneratedDraftSourceKind { image, text }
 
@@ -118,8 +123,10 @@ final class GeneratedDraftRequest {
           throw ArgumentError('Image description requires exact image bytes');
         }
       case GeneratedDraftOperation.textSummary:
+      case GeneratedDraftOperation.textProofreading:
+      case GeneratedDraftOperation.textReadability:
         if (source.kind != GeneratedDraftSourceKind.text || imageBytes != null) {
-          throw ArgumentError('Text summary requires text without image bytes');
+          throw ArgumentError('Text operations require text without image bytes');
         }
     }
   }

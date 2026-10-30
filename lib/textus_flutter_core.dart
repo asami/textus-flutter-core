@@ -22,6 +22,7 @@ export 'src/capture/capture_profile.dart';
 export 'src/capture/capture_session.dart';
 export 'src/capture/generated_draft.dart';
 export 'src/capture/generated_draft_service.dart';
+export 'src/capture/text_revision_comparison.dart';
 export 'src/capture/gemini_nano_generated_draft_provider.dart';
 export 'src/capture/photo_capture.dart';
 export 'src/capture/recognition_operation_context.dart';

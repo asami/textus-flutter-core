@@ -62,9 +62,10 @@ internal sealed class GeminiNanoRequest(val deadlineMillis: Long) {
             val bytes = arguments["bytes"]
             val prompt = arguments["prompt"]
             val modelName = arguments["expectedModelName"]
-            if ((operation != "imageDescription" && operation != "textSummary") || language != "ja" ||
+            val textOperation = operation == "textSummary" || operation == "textProofreading" || operation == "textReadability"
+            if ((operation != "imageDescription" && !textOperation) || language != "ja" ||
                 (operation == "imageDescription" && (bytes !is ByteArray || bytes.isEmpty())) ||
-                (operation == "textSummary" && bytes != null) ||
+                (textOperation && bytes != null) ||
                 prompt !is String || prompt.isBlank() ||
                 (modelName != null && (modelName !is String || modelName.isBlank()))) {
                 throw GeminiNanoFailure("invalidArguments", "Invalid generated draft operation, language, original bytes, prompt or expectedModelName")

@@ -152,6 +152,105 @@ void main() {
   });
 
   group('generated draft durable workspace', () {
+    for (final operation in [
+      GeneratedDraftOperation.textProofreading,
+      GeneratedDraftOperation.textReadability,
+    ]) {
+      test('${operation.name} retains exact text without image bytes', () {
+        // Given exact selected Japanese text with whitespace and Unicode.
+        const text = ' \n「引用😀」と個人の注釈 e\u0301。\t ';
+        final source = _textSource(text: text);
+        // When the selected operation captures a source reloaded from JSON.
+        final request = GeneratedDraftRequest(
+          id: operation.name,
+          operation: operation,
+          source: GeneratedDraftSource.fromJson(_detached(source.toJson())),
+        );
+        // Then source spelling and identity are exact and no image is invented.
+        expect(request.operation, operation);
+        expect(request.source.text, text);
+        expect(request.source.toJson(), source.toJson());
+        expect(request.imageBytes, isNull);
+      });
+
+      test('${operation.name} rejects blank text, images and any image bytes', () {
+        // Given this text operation and invalid source or byte combinations.
+        final invalid = <GeneratedDraftRequest Function()>[
+          for (final text in ['', ' \n\t '])
+            () => GeneratedDraftRequest(
+              id: 'blank', operation: operation,
+              source: _textSource(text: text),
+            ),
+          () => GeneratedDraftRequest(
+            id: 'image', operation: operation, source: _imageSource(),
+          ),
+          for (final bytes in [Uint8List(0), Uint8List.fromList([1])])
+            () => GeneratedDraftRequest(
+              id: 'bytes', operation: operation,
+              source: _textSource(), imageBytes: bytes,
+            ),
+        ];
+        for (final construct in invalid) {
+          // When an incompatible text request is constructed.
+          // Then it fails before any provider can receive it.
+          expect(construct, throwsArgumentError);
+        }
+      });
+    }
+
+    test('new text operations append to exact v2 image and summary schema1 history', () {
+      // Given retained v2 attempts for both original operations in a v1 workspace.
+      Map<String, Object?> evidence(GeneratedDraftOperation operation, String template) {
+        final base = _attempt(operation.name).toJson();
+        return {
+          ...base,
+          'operation': operation.name,
+          'source': operation == GeneratedDraftOperation.imageDescription
+              ? _imageSource().toJson() : _textSource().toJson(),
+          'promptTemplate': template,
+          'availability': {..._availability().toJson(), 'operation': operation.name},
+        };
+      }
+      final historicalJson = {
+        'schemaVersion': 1,
+        'attempts': [
+          evidence(GeneratedDraftOperation.imageDescription, 'textus.generated-draft.ja.v2'),
+          evidence(GeneratedDraftOperation.textSummary, 'textus.generated-draft.ja.v2'),
+        ],
+        'decisions': <Object?>[],
+      };
+      final historical = GeneratedDraftWorkspace.fromJson(_detached(historicalJson));
+      // When both new operations are appended and the whole history is reloaded.
+      var appended = historical;
+      for (final operation in [
+        GeneratedDraftOperation.textProofreading,
+        GeneratedDraftOperation.textReadability,
+      ]) {
+        appended = appended.append(GeneratedDraftAttempt.fromJson(
+          evidence(operation, 'textus.generated-draft.ja.v3'),
+        ));
+      }
+      final restored = GeneratedDraftWorkspace.fromJson(_detached(appended.toJson()));
+      // Then all operations round-trip under the unchanged schema and historical prefix.
+      expect(historical.toJson(), historicalJson);
+      expect(restored.toJson(), appended.toJson());
+      expect(restored.toJson().keys.toSet(), {'schemaVersion', 'attempts', 'decisions'});
+      expect(restored.toJson()['schemaVersion'], 1);
+      expect(restored.attempts.map((attempt) => attempt.operation), GeneratedDraftOperation.values);
+      expect(restored.attempts.take(2).map((attempt) => attempt.promptTemplate),
+          everyElement('textus.generated-draft.ja.v2'));
+      expect(restored.attempts.last.toJson().keys.toSet(), historical.attempts.last.toJson().keys.toSet());
+      expect(() => GeneratedDraftWorkspace.requireRetainedPrefix(historical, restored), returnsNormally);
+      expect(() => GeneratedDraftAttempt.fromJson({
+        ...restored.attempts.last.toJson(), 'revisionProposal': true,
+      }), throwsFormatException);
+      expect(() => restored.append(GeneratedDraftAttempt.fromJson({
+        ...evidence(GeneratedDraftOperation.textReadability, 'textus.generated-draft.ja.v3'),
+        'id': 'rewritten-source',
+        'source': _textSource(text: '別の原文').toJson(),
+      })), throwsArgumentError);
+    });
+
     test('Japanese raw data and all explicit decisions survive detached JSON', () {
       // Given five exact derived drafts with retained Japanese origin metadata.
       const input = ' \n原文😀、表記を変えない。  ';

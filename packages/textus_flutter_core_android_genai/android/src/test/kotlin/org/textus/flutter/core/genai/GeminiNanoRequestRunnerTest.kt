@@ -274,7 +274,7 @@ class GeminiNanoRequestRunnerTest {
 
     @Test
     fun shouldGeneratePlainImageAndTextDraftsWithExactIdentityAndNullableImageInput() = runTest {
-        for (operation in listOf("imageDescription", "textSummary")) {
+        for (operation in listOf("imageDescription", "textSummary", "textProofreading", "textReadability")) {
             for (expected in listOf<String?>(null, "actual-base-model")) {
                 // Given this operation's exact prompt, original image or true text-only input, and expected model.
                 val model = Model(draftText = " \n日本語の編集可能な下書き\n ")
@@ -342,8 +342,15 @@ class GeminiNanoRequestRunnerTest {
             "prompt" to null, "prompt" to 4, "prompt" to " ",
             "expectedModelName" to 4, "expectedModelName" to " ",
         )) invalid.add(valid + (key to value))
-        invalid.add(draftArguments(operation = "textSummary", bytes = byteArrayOf(1)))
-        invalid.add(draftArguments(operation = "textSummary", bytes = null) + ("bytes" to "pseudoimage"))
+        for (operation in listOf("textSummary", "textProofreading", "textReadability")) {
+            for (bytes in listOf<Any?>(byteArrayOf(1), byteArrayOf(), "pseudoimage", listOf(1), 1)) {
+                invalid.add(draftArguments(operation = operation, bytes = null) + ("bytes" to bytes))
+            }
+            for ((key, value) in listOf(
+                "operation" to " $operation", "operation" to "${operation}Future",
+                "language" to "en", "language" to " ja", "extra" to true,
+            )) invalid.add(draftArguments(operation = operation, bytes = null) + (key to value))
+        }
         for (arguments in invalid) {
             // Given this missing, extra, wrong-type, unsupported or source-inconsistent draft envelope.
             val factory = Factory(Model())
