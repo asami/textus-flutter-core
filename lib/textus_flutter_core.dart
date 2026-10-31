@@ -6,6 +6,8 @@
 /// unsupported platforms expose the same API and throw UnsupportedError.
 library;
 
+export 'src/authentication/user_account_authentication.dart';
+
 // Original audio runtime, strict PCM and append-only transcript contracts.
 export 'src/audio/audio_capture.dart';
 export 'src/audio/audio_capture_service.dart';
