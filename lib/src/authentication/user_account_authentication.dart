@@ -101,9 +101,17 @@ sealed class UserAccountSignInResult {
 }
 
 final class UserAccountSignedIn extends UserAccountSignInResult {
-  const UserAccountSignedIn(this.account);
+  const UserAccountSignedIn(this.account, {this.sessionCommit});
 
   final AuthenticatedUserAccount account;
+  final UserAccountAuthenticationSessionCommit? sessionCommit;
+}
+
+/// A backend-owned candidate; persistence alone never publishes authentication.
+abstract interface class UserAccountAuthenticationSessionCommit {
+  Future<void> persist({required UserAccountAuthenticationOperation operation});
+  void accept();
+  Future<void> discard();
 }
 
 /// The opaque reference is private to the backend and Core client.
@@ -151,6 +159,14 @@ abstract interface class UserAccountAuthenticationBackend {
   Future<void> close();
 }
 
+/// Explicit restoration is optional and never runs during construction.
+abstract interface class UserAccountRestorableAuthenticationBackend
+    implements UserAccountAuthenticationBackend {
+  Future<UserAccountSignInResult?> restore({
+    required UserAccountAuthenticationOperation operation,
+  });
+}
+
 /// Safe observable authentication state with serialized, cancellable actions.
 ///
 /// Construction performs no IO. No credential inputs are retained as fields.
@@ -186,17 +202,41 @@ final class UserAccountAuthenticationClient extends ChangeNotifier {
   bool _disposeRequested = false;
   bool _notifierDisposed = false;
   int _notificationDepth = 0;
+  bool _failedLocalClear = false;
+  bool _cleanupFailureUnresolved = false;
 
   UserAccountAuthenticationSnapshot get snapshot => _snapshot;
   bool get busy => _active != null && !isClosed;
   bool get isClosed =>
       _snapshot.status == UserAccountAuthenticationStatus.closed;
 
+  bool get canRestore =>
+      !isClosed &&
+      _backend is UserAccountRestorableAuthenticationBackend &&
+      _active == null &&
+      !_failedLocalClear &&
+      (_snapshot.status == UserAccountAuthenticationStatus.signedOut ||
+          _snapshot.status == UserAccountAuthenticationStatus.failure);
+
+  Future<void> restore() async {
+    if (!canRestore) throw _invalidCommand();
+    final action = _reserve(_ActionKind.authentication);
+    _challengeId = null;
+    _publish(UserAccountAuthenticationStatus.refreshing);
+    await _authenticate(
+      action,
+      () => (_backend as UserAccountRestorableAuthenticationBackend)
+          .restore(operation: action.operation),
+      restoring: true,
+    );
+  }
+
   Future<void> signIn({
     required String identifier,
     required String password,
   }) async {
     _requireIdle();
+    if (_cleanupFailureUnresolved) throw _invalidCommand();
     if (_snapshot.status != UserAccountAuthenticationStatus.signedOut &&
         _snapshot.status != UserAccountAuthenticationStatus.failure) {
       throw _invalidCommand();
@@ -257,13 +297,18 @@ final class UserAccountAuthenticationClient extends ChangeNotifier {
 
   Future<void> _authenticate(
     _PendingAction action,
-    Future<UserAccountSignInResult> Function() invoke, {
+    Future<UserAccountSignInResult?> Function() invoke, {
     String? expectedAccountId,
+    bool restoring = false,
   }) async {
+    UserAccountAuthenticationSessionCommit? completion;
+    var accepted = false;
     try {
       // A listener may already have cancelled, logged out or closed the client.
       if (!_isCurrent(action)) return;
       final result = await invoke();
+      // Capture even a late result: its private candidate still needs draining.
+      if (result is UserAccountSignedIn) completion = result.sessionCommit;
       if (!_isCurrent(action)) return;
       switch (result) {
         case UserAccountSignedIn(:final account):
@@ -271,6 +316,12 @@ final class UserAccountAuthenticationClient extends ChangeNotifier {
               account.userAccountId != expectedAccountId) {
             _fail(UserAccountAuthenticationFailure.invalidResponse);
           } else {
+            if (completion != null) {
+              await completion.persist(operation: action.operation);
+              if (!_isCurrent(action)) return;
+              completion.accept();
+            }
+            accepted = true;
             _challengeId = null;
             _publish(
               UserAccountAuthenticationStatus.authenticated,
@@ -278,9 +329,8 @@ final class UserAccountAuthenticationClient extends ChangeNotifier {
             );
           }
         case UserAccountChallengePending(:final challengeId, :final channel):
-          if (expectedAccountId != null ||
-              challengeId.trim().isEmpty ||
-              channel != 'email') {
+          if (restoring || expectedAccountId != null ||
+              challengeId.trim().isEmpty || channel != 'email') {
             _fail(UserAccountAuthenticationFailure.invalidResponse);
           } else {
             _challengeId = challengeId;
@@ -291,13 +341,30 @@ final class UserAccountAuthenticationClient extends ChangeNotifier {
           }
         case UserAccountSignInRejected(:final reason):
           _fail(reason);
+        case null:
+          if (restoring) {
+            _publish(UserAccountAuthenticationStatus.signedOut);
+          } else {
+            _fail(UserAccountAuthenticationFailure.invalidResponse);
+          }
       }
     } catch (_) {
       if (_isCurrent(action)) {
         _fail(UserAccountAuthenticationFailure.serviceUnavailable);
       }
     } finally {
-      _finish(action);
+      try {
+        if (!accepted && completion != null) await completion.discard();
+      } catch (_) {
+        action.cleanupFailed = true;
+        _cleanupFailureUnresolved = true;
+        _failedLocalClear = true;
+        if (_isCurrent(action)) {
+          _publishCleanupFailure();
+        }
+      } finally {
+        _finish(action);
+      }
     }
   }
 
@@ -305,7 +372,9 @@ final class UserAccountAuthenticationClient extends ChangeNotifier {
   Future<void> cancel() async {
     _requireConfigured();
     final previous = _active;
-    if (previous?.kind != _ActionKind.authentication &&
+    if (!(previous?.kind == _ActionKind.authentication &&
+            (_snapshot.status == UserAccountAuthenticationStatus.signingIn ||
+                _snapshot.status == UserAccountAuthenticationStatus.refreshing)) &&
         !(previous == null &&
             _snapshot.status ==
                 UserAccountAuthenticationStatus.challengeRequired)) {
@@ -320,6 +389,10 @@ final class UserAccountAuthenticationClient extends ChangeNotifier {
     );
     try {
       if (previous != null) await previous.done.future;
+      if (previous?.cleanupFailed == true || _cleanupFailureUnresolved) {
+        if (_isCurrent(action)) _publishCleanupFailure();
+        throw StateError('Authentication cleanup failed');
+      }
       if (_isCurrent(action)) {
         _publish(
           UserAccountAuthenticationStatus.signedOut,
@@ -347,6 +420,8 @@ final class UserAccountAuthenticationClient extends ChangeNotifier {
       if (previous != null) await previous.done.future;
       if (!_isCurrent(action)) return result;
       result = await _backend!.signOut(operation: action.operation);
+      _failedLocalClear = !result.localCleared;
+      if (result.localCleared) _cleanupFailureUnresolved = false;
       if (_isCurrent(action)) {
         _publish(
           result.localCleared
@@ -360,6 +435,7 @@ final class UserAccountAuthenticationClient extends ChangeNotifier {
       }
     } catch (_) {
       result = _unknownLogout;
+      _failedLocalClear = true;
       if (_isCurrent(action)) {
         _publish(
           UserAccountAuthenticationStatus.failure,
@@ -396,12 +472,26 @@ final class UserAccountAuthenticationClient extends ChangeNotifier {
     _PendingAction? previous,
     Completer<void> completion,
   ) async {
+    var failed = false;
     try {
       if (previous != null) await previous.done.future;
-      if (ownsBackend) await _backend!.close();
-      completion.complete();
     } catch (_) {
+      failed = true;
+    }
+    if (previous?.cleanupFailed == true || _cleanupFailureUnresolved) {
+      failed = true;
+    }
+    if (ownsBackend) {
+      try {
+        await _backend!.close();
+      } catch (_) {
+        failed = true;
+      }
+    }
+    if (failed) {
       completion.completeError(StateError('Authentication close failed'));
+    } else {
+      completion.complete();
     }
   }
 
@@ -462,6 +552,18 @@ final class UserAccountAuthenticationClient extends ChangeNotifier {
     _publish(UserAccountAuthenticationStatus.failure, failure: failure);
   }
 
+  void _publishCleanupFailure() {
+    _challengeId = null;
+    _publish(
+      UserAccountAuthenticationStatus.failure,
+      failure: UserAccountAuthenticationFailure.serviceUnavailable,
+      lastLogoutResult: const UserAccountLogoutResult(
+        localCleared: false,
+        remoteRevocation: UserAccountRemoteRevocation.notAttempted,
+      ),
+    );
+  }
+
   void _publish(
     UserAccountAuthenticationStatus status, {
     AuthenticatedUserAccount? account,
@@ -498,6 +600,7 @@ final class _PendingAction {
   final UserAccountAuthenticationOperation operation =
       UserAccountAuthenticationOperation._();
   final Completer<void> done = Completer<void>();
+  bool cleanupFailed = false;
 }
 
 const _unknownLogout = UserAccountLogoutResult(

@@ -4,6 +4,312 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:textus_flutter_core/textus_flutter_core.dart';
 
 void main() {
+  group('backend-owned publication completion and explicit restore', () {
+    test('persist precedes publication and accepted work survives retirement', () async {
+      // Given a staged result whose persistence is externally controlled.
+      final completion = _ControlledCommit();
+      final backend = _ControlledBackend()..onSignIn = () =>
+          UserAccountSignedIn(_signedIn().account, sessionCommit: completion);
+      final client = UserAccountAuthenticationClient(backend: backend);
+      final work = client.signIn(identifier: 'id', password: 'pw');
+      await completion.started.future;
+      // When protected persistence finishes for the still-current operation.
+      expect(client.snapshot.isAuthenticated, isFalse);
+      completion.persisted.complete();
+      await work;
+      // Then acceptance happens once before observers see the account.
+      expect(completion.events, ['persist', 'accept']);
+      expect(client.snapshot.isAuthenticated, isTrue);
+      await client.close();
+      expect(completion.events, ['persist', 'accept']);
+    });
+
+    test('late results are discarded before cancellation finishes', () async {
+      // Given a backend response delayed until after cancellation.
+      final result = Completer<UserAccountSignInResult>();
+      final completion = _ControlledCommit()..holdDiscard = true;
+      final backend = _ControlledBackend()..onSignIn = () => result.future;
+      final client = UserAccountAuthenticationClient(backend: backend);
+      final work = client.signIn(identifier: 'id', password: 'pw');
+      final cancelling = client.cancel();
+      // When a late staged success arrives, cleanup remains outstanding.
+      result.complete(UserAccountSignedIn(
+        _signedIn().account, sessionCommit: completion,
+      ));
+      await completion.discardStarted.future;
+      await expectLater(client.signIn(identifier: 'next', password: 'pw'), throwsStateError);
+      expect(client.busy, isTrue);
+      completion.discarded.complete();
+      await work;
+      await cancelling;
+      // Then cleanup drained before idle and persistence never began.
+      expect(completion.events, ['discard']);
+      expect(client.snapshot.status, UserAccountAuthenticationStatus.signedOut);
+      await client.close();
+    });
+
+    test('mismatched refresh account is discarded before persistence', () async {
+      // Given a signed-in client and a staged refresh for another account.
+      final backend = _ControlledBackend();
+      final client = await _authenticated(backend);
+      final completion = _ControlledCommit();
+      backend.onRefresh = () => UserAccountSignedIn(
+        AuthenticatedUserAccount(userAccountId: 'different-account'),
+        sessionCommit: completion,
+      );
+      // When refresh reaches the publication boundary.
+      await client.refresh();
+      // Then account ownership is rejected before any protected write.
+      expect(completion.events, ['discard']);
+      expect(client.snapshot.failure, UserAccountAuthenticationFailure.invalidResponse);
+      await client.close();
+    });
+
+    for (final command in ['cancel', 'logout', 'close']) {
+      test('authenticated publication listener handles $command safely', () async {
+        // Given a completion already persisted and a synchronous publication listener.
+        final completion = _ControlledCommit()..persisted.complete();
+        final backend = _ControlledBackend()..onSignIn = () =>
+            UserAccountSignedIn(_signedIn().account, sessionCommit: completion);
+        final client = UserAccountAuthenticationClient(backend: backend);
+        Future<Object?>? listenerWork;
+        client.addListener(() {
+          if (client.snapshot.isAuthenticated && listenerWork == null) {
+            listenerWork = switch (command) {
+              'cancel' => expectLater(client.cancel(), throwsStateError),
+              'logout' => client.signOut(),
+              _ => client.close(),
+            };
+          }
+        });
+        // When the accepted result publishes synchronously.
+        await client.signIn(identifier: 'id', password: 'pw');
+        await listenerWork;
+        // Then cancellation cannot withdraw success; logout and close retain their meaning.
+        expect(completion.events, ['persist', 'accept']);
+        expect(client.snapshot.status, switch (command) {
+          'cancel' => UserAccountAuthenticationStatus.authenticated,
+          'logout' => UserAccountAuthenticationStatus.signedOut,
+          _ => UserAccountAuthenticationStatus.closed,
+        });
+        await client.close();
+      });
+    }
+
+    test('cleanup failure is observed and never publishes authentication', () async {
+      // Given a persist failure followed by an unsuccessful candidate cleanup.
+      final completion = _ControlledCommit()..failPersist = true..failDiscard = true;
+      final backend = _RestorableBackend()..onSignIn = () =>
+          UserAccountSignedIn(_signedIn().account, sessionCommit: completion);
+      final client = UserAccountAuthenticationClient(backend: backend);
+      // When the client handles that completion.
+      await client.signIn(identifier: 'id', password: 'pw');
+      // Then it fails closed with only a fixed safe category and drains cleanup.
+      expect(completion.events, ['persist', 'discard']);
+      expect(client.snapshot.failure, UserAccountAuthenticationFailure.serviceUnavailable);
+      expect(client.snapshot.isAuthenticated, isFalse);
+      expect(client.busy, isFalse);
+      expect(client.snapshot.lastLogoutResult?.localCleared, isFalse);
+      expect(client.snapshot.lastLogoutResult?.remoteRevocation,
+          UserAccountRemoteRevocation.notAttempted);
+      expect(client.canRestore, isFalse);
+      // When a caller attempts to restore or sign in before explicit cleanup.
+      await expectLater(client.restore(), throwsStateError);
+      await expectLater(client.signIn(identifier: 'next', password: 'pw'), throwsStateError);
+      // Then neither command reaches the backend or hides the cleanup failure.
+      expect(backend.calls, ['signIn']);
+      expect(backend.restores, 0);
+      // When explicit logout successfully resolves the failed local cleanup.
+      final cleanup = await client.signOut();
+      // Then the client admits restoration again and ordinary close succeeds.
+      expect(cleanup.localCleared, isTrue);
+      expect(client.canRestore, isTrue);
+      await client.close();
+    });
+
+    test('retired cleanup failure reaches cancellation without an unobserved join error', () async {
+      // Given a late staged result with a failing discard and a restorable backend.
+      final result = Completer<UserAccountSignInResult>();
+      final completion = _ControlledCommit()..failDiscard = true;
+      final backend = _RestorableBackend()..onSignIn = () => result.future;
+      final client = UserAccountAuthenticationClient(backend: backend);
+      addTearDown(() async {
+        await expectLater(client.close(), _authenticationCloseFailure());
+      });
+      final work = client.signIn(identifier: 'id', password: 'pw');
+      final statuses = <UserAccountAuthenticationStatus>[];
+      client.addListener(() => statuses.add(client.snapshot.status));
+      // When cancellation joins a late completion whose cleanup fails.
+      final cancelling = expectLater(client.cancel(), _authenticationCleanupFailure());
+      result.complete(UserAccountSignedIn(_signedIn().account, sessionCommit: completion));
+      await work;
+      await cancelling;
+      // Then the origin drains normally, but the retiring caller receives a safe failure.
+      expect(completion.events, ['discard']);
+      expect(client.busy, isFalse);
+      expect(client.snapshot.status, UserAccountAuthenticationStatus.failure);
+      expect(client.snapshot.failure, UserAccountAuthenticationFailure.serviceUnavailable);
+      expect(client.snapshot.account, isNull);
+      expect(client.snapshot.lastLogoutResult?.localCleared, isFalse);
+      expect(client.snapshot.lastLogoutResult?.remoteRevocation,
+          UserAccountRemoteRevocation.notAttempted);
+      expect(client.canRestore, isFalse);
+      expect(statuses, isNot(contains(UserAccountAuthenticationStatus.signedOut)));
+      expect('$client', isNot(contains('synthetic private cleanup failure')));
+      // When direct authentication is requested again.
+      await expectLater(client.signIn(identifier: 'next', password: 'pw'), throwsStateError);
+      await expectLater(client.restore(), throwsStateError);
+      // Then failed staged cleanup prevents any new backend IO.
+      expect(backend.calls, ['signIn']);
+      expect(backend.restores, 0);
+    });
+
+    for (final owned in [false, true]) {
+      test('retired cleanup failure is joined by close with owned=$owned', () async {
+        // Given persistence already accepted and a discard held until after close.
+        final completion = _ControlledCommit()
+          ..holdDiscard = true
+          ..failDiscard = true;
+        final backend = _ControlledBackend()..onSignIn = () =>
+            UserAccountSignedIn(_signedIn().account, sessionCommit: completion);
+        final client = UserAccountAuthenticationClient(backend: backend, ownsBackend: owned);
+        addTearDown(() async {
+          await expectLater(client.close(), _authenticationCloseFailure());
+          if (!owned) await backend.close();
+        });
+        final work = client.signIn(identifier: 'id', password: 'pw');
+        await completion.started.future;
+        // When cancellation starts draining and close supersedes its presentation.
+        final cancelling = expectLater(client.cancel(), _authenticationCleanupFailure());
+        completion.persisted.complete();
+        await completion.discardStarted.future;
+        final closing = client.close();
+        final failedClose = expectLater(closing, _authenticationCloseFailure());
+        final closedRevision = client.snapshot.revision;
+        var notifications = 0;
+        client.addListener(() { notifications++; });
+        completion.discarded.complete();
+        await work;
+        await cancelling;
+        await failedClose;
+        // Then both owners receive their fixed failures after all owned close work.
+        expect(completion.events, ['persist', 'discard']);
+        expect(backend.calls, owned ? ['signIn', 'close'] : ['signIn']);
+        expect(client.snapshot.status, UserAccountAuthenticationStatus.closed);
+        expect(client.snapshot.account, isNull);
+        expect(client.snapshot.revision, closedRevision);
+        expect(notifications, 0);
+        expect(client.canRestore, isFalse);
+        expect(client.close(), same(closing));
+      });
+    }
+
+    for (final owned in [false, true]) {
+      test('current cleanup failure remains observable on later idle close with owned=$owned', () async {
+        // Given current authentication whose persistence and discard both fail.
+        final completion = _ControlledCommit()..failPersist = true..failDiscard = true;
+        final backend = _ControlledBackend()..onSignIn = () =>
+            UserAccountSignedIn(_signedIn().account, sessionCommit: completion);
+        final client = UserAccountAuthenticationClient(backend: backend, ownsBackend: owned);
+        await client.signIn(identifier: 'id', password: 'pw');
+        // When close runs after the failed action has already become idle.
+        final closing = client.close();
+        await expectLater(closing, _authenticationCloseFailure());
+        // Then remembered cleanup failure is retained and only an owned backend closes.
+        expect(client.snapshot.status, UserAccountAuthenticationStatus.closed);
+        expect(client.snapshot.account, isNull);
+        expect(backend.calls, owned ? ['signIn', 'close'] : ['signIn']);
+        expect(client.close(), same(closing));
+        if (!owned) await backend.close();
+      });
+    }
+
+    for (final throwsCleanup in [false, true]) {
+      test('logout joining cleanup failure retains barriers until successful retry throws=$throwsCleanup', () async {
+        // Given a deferred staged login and an unsuccessful first explicit cleanup.
+        final result = Completer<UserAccountSignInResult>();
+        final completion = _ControlledCommit()..failDiscard = true;
+        final backend = _RestorableBackend()
+          ..onSignIn = (() => result.future)
+          ..onSignOut = () {
+            if (throwsCleanup) throw StateError('synthetic private logout failure');
+            return const UserAccountLogoutResult(
+              localCleared: false,
+              remoteRevocation: UserAccountRemoteRevocation.notAttempted,
+            );
+          };
+        final client = UserAccountAuthenticationClient(backend: backend);
+        final work = client.signIn(identifier: 'id', password: 'pw');
+        // When explicit logout joins the failed discard and still invokes backend cleanup.
+        final loggingOut = client.signOut();
+        result.complete(UserAccountSignedIn(_signedIn().account, sessionCommit: completion));
+        await work;
+        final failed = await loggingOut;
+        // Then unsuccessful cleanup retains both admission barriers with safe logout facts.
+        expect(backend.calls, ['signIn', 'signOut']);
+        expect(failed.localCleared, isFalse);
+        expect(failed.remoteRevocation, throwsCleanup
+            ? UserAccountRemoteRevocation.unknown
+            : UserAccountRemoteRevocation.notAttempted);
+        expect(client.snapshot.status, UserAccountAuthenticationStatus.failure);
+        expect(client.snapshot.account, isNull);
+        expect(client.canRestore, isFalse);
+        await expectLater(client.signIn(identifier: 'next', password: 'pw'), throwsStateError);
+        await expectLater(client.restore(), throwsStateError);
+        // Given a successful explicit local cleanup is now available.
+        backend.onSignOut = () => const UserAccountLogoutResult(
+          localCleared: true,
+          remoteRevocation: UserAccountRemoteRevocation.notAttempted,
+        );
+        // When logout is explicitly retried.
+        final retry = await client.signOut();
+        // Then both barriers clear without reviving the discarded account.
+        expect(retry.localCleared, isTrue);
+        expect(client.snapshot.status, UserAccountAuthenticationStatus.signedOut);
+        expect(client.snapshot.account, isNull);
+        expect(client.canRestore, isTrue);
+        backend.onSignIn = _signedIn;
+        // When sign-in is explicitly requested after successful cleanup.
+        await client.signIn(identifier: 'next', password: 'pw');
+        // Then normal authentication admission and borrowed close remain compatible.
+        expect(client.snapshot.isAuthenticated, isTrue);
+        await client.close();
+      });
+    }
+
+    test('only an explicit restorable idle port admits restoration', () async {
+      // Given restorable, legacy and unavailable clients with inert constructors.
+      final backend = _RestorableBackend();
+      final client = UserAccountAuthenticationClient(backend: backend);
+      final legacy = UserAccountAuthenticationClient(backend: _ControlledBackend());
+      final unavailable = UserAccountAuthenticationClient.unavailable();
+      expect(backend.restores, 0);
+      expect(client.canRestore, isTrue);
+      expect(legacy.canRestore, isFalse);
+      expect(unavailable.canRestore, isFalse);
+      // When explicit restoration reports no stored candidate.
+      await client.restore();
+      // Then null means ordinary signed-out only for this call.
+      expect(backend.restores, 1);
+      expect(client.snapshot.status, UserAccountAuthenticationStatus.signedOut);
+      expect(client.snapshot.failure, isNull);
+      await expectLater(legacy.restore(), throwsStateError);
+      backend.result = _signedIn();
+      await client.restore();
+      expect(client.snapshot.isAuthenticated, isTrue);
+      expect(client.canRestore, isFalse);
+      backend.onSignOut = () => const UserAccountLogoutResult(
+        localCleared: false, remoteRevocation: UserAccountRemoteRevocation.unknown,
+      );
+      await client.signOut();
+      expect(client.canRestore, isFalse);
+      await expectLater(client.restore(), throwsStateError);
+      await client.close();
+      await legacy.close();
+      await unavailable.close();
+    });
+  });
+
   group('authentication construction and structural admission', () {
     test('should expose configured and unavailable states without IO', () async {
       // Given a backend and an explicitly unavailable client.
@@ -1106,7 +1412,7 @@ Future<UserAccountAuthenticationClient> _authenticated(
 }
 
 /// Test-only asynchronous port control; no credential verification or issuance.
-final class _ControlledBackend implements UserAccountAuthenticationBackend {
+class _ControlledBackend implements UserAccountAuthenticationBackend {
   final calls = <String>[];
   final operations = <UserAccountAuthenticationOperation>[];
   String? identifier;
@@ -1171,5 +1477,53 @@ final class _ControlledBackend implements UserAccountAuthenticationBackend {
   Future<void> close() async {
     calls.add('close');
     await onClose();
+  }
+}
+
+final class _ControlledCommit implements UserAccountAuthenticationSessionCommit {
+  final events = <String>[];
+  final started = Completer<void>();
+  final persisted = Completer<void>();
+  final discardStarted = Completer<void>();
+  final discarded = Completer<void>();
+  bool holdDiscard = false;
+  bool failPersist = false;
+  bool failDiscard = false;
+  @override
+  Future<void> persist({required UserAccountAuthenticationOperation operation}) async {
+    events.add('persist');
+    started.complete();
+    if (failPersist) throw StateError('synthetic private persist failure');
+    await persisted.future;
+  }
+  @override
+  void accept() => events.add('accept');
+  @override
+  Future<void> discard() async {
+    events.add('discard');
+    discardStarted.complete();
+    if (holdDiscard) await discarded.future;
+    if (failDiscard) throw StateError('synthetic private cleanup failure');
+  }
+}
+
+Matcher _authenticationCleanupFailure() => throwsA(isA<StateError>().having(
+  (error) => error.message, 'message', 'Authentication cleanup failed',
+));
+
+Matcher _authenticationCloseFailure() => throwsA(isA<StateError>().having(
+  (error) => error.message, 'message', 'Authentication close failed',
+));
+
+final class _RestorableBackend extends _ControlledBackend
+    implements UserAccountRestorableAuthenticationBackend {
+  int restores = 0;
+  UserAccountSignInResult? result;
+  @override
+  Future<UserAccountSignInResult?> restore({
+    required UserAccountAuthenticationOperation operation,
+  }) async {
+    restores++;
+    return result;
   }
 }

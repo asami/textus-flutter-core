@@ -7,6 +7,7 @@
 library;
 
 export 'src/authentication/user_account_authentication.dart';
+export 'src/authentication/user_account_http_authentication_backend.dart';
 
 // Original audio runtime, strict PCM and append-only transcript contracts.
 export 'src/audio/audio_capture.dart';
