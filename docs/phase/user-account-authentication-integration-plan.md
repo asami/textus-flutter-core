@@ -89,3 +89,35 @@ sanitized results and existing integrated review; record unknowns as open.
 Follow the [baseline contract](https://github.com/asami/goldenport-cncf/blob/main/docs/spec/small-business-security-baseline-and-options.md). Reuse UC/MS
 consumer evidence. Optional strong-authentication providers and physical
 controls are future selectable delivery, not universal current-phase gates.
+
+## Mode-aware common client allocation — 2026-11-02
+
+Implement [shared mode consumption](../spec/user-account-authentication-client.md#shared-runtime-mode-consumption--2026-11-02)
+as part of TFC-UA01..03, preserving all closed Phase histories.
+
+- [ ] TFC-UA01 / MODE-01..03: agree the actual CNCF/User Account mode and fixture
+  contract; separate developer convenience from real participant authentication.
+- [ ] TFC-UA02 / MODE-04/05: native dev setup is simple; actual demo accounts,
+  credentials, storage and queues stay isolated. Account/environment changes
+  cannot reassign/replay pending Material. No production secrets in fixtures.
+- [ ] TFC-UA03: same semantics through the browser adapter with ESA7-01/05;
+  reuse native/common evidence and verify browser-specific transport behavior.
+
+Deliver the basic phone/Web route first. This is not a requirement for Google
+OIDC, passkeys or a new environment-settings UI before November 10.
+
+## External providers and provider-managed Passkey — 2026-11-05
+
+Status: PLANNED; separate extension, not a November 10 demo gate.
+
+Implement common external-login state and browser launch/return, native completion exchange, Web session transport, protected credential storage and logout; keep provider verification and secrets server-side.
+
+Follow the [shared delivery decision](../notes/external-provider-login-and-passkey.md).
+Google is first; Microsoft/GitHub/LINE follow without blocking its acceptance.
+Existing active work, accepted phases and direct Textus WebAuthn plans remain intact.
+
+- [ ] TFC-FED-01: Agree the begin/callback/completion/session and provider-capability contracts with the other two owners; preserve existing identity/authorization boundaries.
+- [ ] TFC-FED-02: Deliver the owner responsibility above on the connected Google Web/native route, then qualify other enabled providers separately.
+- [ ] TFC-FED-03: Accept provider-managed Passkey on supported real account/device/browser combinations; distinguish actual ceremony from reused sessions and unverified assurance. No Textus Passkey enrollment is required.
+- [ ] TFC-FED-04: Verify Japanese/default recommendations and Other access to all remaining enabled providers with Framework/Core; locale does not restrict authentication.
+- [ ] TFC-FED-05: Record connected success, cancellation, rejection/replay, account isolation, logout and redaction evidence; normal owner tests/review/release apply.
