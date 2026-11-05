@@ -171,3 +171,20 @@ Android/iPhone real-provider and owner-correct submission acceptance below.
   authentication or separate account store is required.
 
 Delivery: [integration plan](../phase/user-account-authentication-integration-plan.md).
+
+## Internal native storage prerequisite (2026-11-05)
+
+The bounded [native credential storage specification](native-authentication-credential-storage.md)
+adds internal opaque-byte Android/iOS storage with revision CAS, conditional
+remove, explicit slot clear and handle retirement/drain. It is not root-exported
+and supplies no backend, session issuer, account restoration or HTTP codec.
+Parent validation and native qualification remain required. This prerequisite
+does not complete the real-provider or consumer requirements above.
+
+The production Core backend must still bind accepted HTTP specimens, a
+server-normalized codec and authoritative provider account, refresh/current-
+session logout and account-safe authenticated queue ownership. It must check
+`operation.isCurrent` before persistence, conditionally remove only its own
+returned late-write revision on cancellation, and drain retired work before
+publishing. Storage `close` preserves persistent records and may drain an
+already-issued write; it must never serve as logout or cancellation rollback.
