@@ -17,6 +17,9 @@ import 'submission_run_lifetime.dart';
 import 'submission_service.dart';
 import 'tkl_material_delivery_http_client.dart';
 
+/// Observed execution capability; never queue, network or identity authority.
+enum SubmissionExecutionMode { unknown, foreground, background }
+
 /// Caller-owned service/queue composition. A runner only borrows these resources.
 final class SubmissionBackgroundResources {
   /// Retains the owner's cleanup callback. Custom compositions must make close
@@ -26,6 +29,7 @@ final class SubmissionBackgroundResources {
     required this.service,
     required this.queue,
     required Future<void> Function() close,
+    this.executionMode = SubmissionExecutionMode.unknown,
     // Preserve the public named close callback while storing it privately.
     // ignore: prefer_initializing_formals
   }) : _close = close;
@@ -35,6 +39,9 @@ final class SubmissionBackgroundResources {
 
   /// Same durable queue used by the service, borrowed by a runner.
   final SubmissionQueueStore queue;
+
+  /// Platform execution capability for presentation, independent of readiness.
+  final SubmissionExecutionMode executionMode;
   final Future<void> Function() _close;
 
   /// Executes the owner's cleanup; runners never call this operation.
@@ -170,6 +177,7 @@ Future<SubmissionBackgroundResources> openDefaultAndroidSubmissionResources({
       service: service,
       queue: queue,
       close: close,
+      executionMode: SubmissionExecutionMode.background,
     );
   } catch (error, stack) {
     try {
