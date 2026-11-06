@@ -1,5 +1,61 @@
 # Registered Material to Studio handoff
 
+## Participant failure classification
+
+Studio producer commit `1a309691c0a0a62ba53d3bab6875a4bd69a3b7c5`,
+`docs/spec/participant-japanese-error-presentation-v1.md`, defines the bounded
+participant error input. Only `submitRegisteredMaterial` v2 opts into the internal
+`studio_submission_failure.dart` decoder. Legacy `submit`, TKL, Drive and User
+Account HTTP contracts retain their existing handling. No public DTO, barrel,
+queue schema or migration is added.
+
+| HTTP | Integer detailCode | Taxonomy category / symptom | Known safe code | Status fallback |
+| --- | ---: | --- | --- | --- |
+| 400 | 10899020100 | argument / invalid | studioInputInvalid | studioHttp400 |
+| 401 | 91599020100 | security / authentication-required | studioAuthenticationRequired | studioHttp401 |
+| 403 | 91699020100 | security / permission-denied | studioPermissionDenied | studioHttp403 |
+| 404 | 61099020100 | resource / not-found | studioNotFound | studioHttp404 |
+| 409 | 81299020100 | state / conflict | studioConflict | studioHttp409 |
+
+Known classification requires JSON content type (optional charset), the actual
+HTTP status, integer `error.detailCode` and exact
+`error.conclusion.observation.taxonomy.category` / `symptom`. If present,
+`error.status` must be an integer equal to HTTP status. If present,
+`error.conclusion.status` must be an object; its optional integer `detailCode`
+must equal the required detailCode and optional integer `webCode` must equal
+HTTP status. Missing required values, wrong types (including explicit nulls),
+inconsistency, malformed JSON, wrong content type or unknown tuples use the
+status fallback. Parsing uses the existing bounded response bytes. Arbitrary
+message, debug, cause, facets, owner, URL and token fields are never consulted.
+
+Other 4xx/5xx use `studioHttpUnknown`; 408, 429 and 5xx keep retryable true,
+other errors false. 401 retains the configuration stage, other statuses the
+transport stage. Exceptions use fixed generic English without server content.
+Other statuses, including redirects, delegate to existing generic handling.
+Before potential dispatch the transport outcome remains notSent. Afterwards
+only a completed 401 with `authRequired`, `studioAuthenticationRequired` or
+`studioHttp401`, or a completed 403 with `permissionDenied`,
+`studioPermissionDenied` or `studioHttp403`, is rejected. All other failures
+remain unknown, including cancellation or timeout after headers alone.
+
+The handoff owner persists only the eleven safe codes (five known, five status
+fallbacks, plus `studioHttpUnknown`) when the current run catches a remote
+unknown/rejected adapter failure. The existing string `failure.code` carries
+that classification through SQLite and reopen; exception messages are never
+persisted. A retired run discards the classification and retains
+`acceptanceUnknown`. Untrusted/legacy codes still collapse to
+`acceptanceUnknown` / `handoffRejected`, and notSent retains `handoffNotSent`.
+Failure kind, durable state, ACK rules, immutable source, packet, request ID,
+target and lease ownership are unchanged. A 409 supplies no update-conflict
+diagnosis or permission to replay. Only explicit reconciliation can schedule
+the same saved intent again.
+
+Controlled HTTP executable scenarios are authored in
+`test/submission/registered_material_http_transport_test.dart`; connected App
+SQLite/UI scenarios belong to the App consumer. Host qualification and
+independent focused Step review have passed for this bounded addition.
+Actual server/device acceptance and whole-Phase closure remain outstanding.
+
 Core provides an explicit v2 handoff of an existing saved TKL Registered source.
 The normative wire authority is Studio's `docs/spec/book-material-intake-v2.md`,
 frozen at `aea71d140073367ed5bc6071b9319b30340da2bc`. This implementation

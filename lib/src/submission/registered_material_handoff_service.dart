@@ -9,6 +9,7 @@ import 'submission_connections.dart';
 import 'submission_json.dart' as j;
 import 'submission_queue_store.dart';
 import 'submission_record.dart';
+import 'studio_submission_failure.dart';
 import 'tkl_material_delivery.dart';
 
 enum RegisteredMaterialHandoffRunOutcome {
@@ -229,9 +230,13 @@ final class RegisteredMaterialHandoffService {
           _retired.future.then<SubmissionAcknowledgement>((_) => throw const _HandoffRetired()),
         ]);
       } on SubmissionAdapterException catch (error) {
-        if (!_current(runPredicate) ||
-            error.transportFailureOutcome == SubmissionTransportFailureOutcome.unknown) {
+        if (!_current(runPredicate)) {
           return await _finishUnknown(claim, 'acceptanceUnknown');
+        }
+        final studioCode = isStudioSubmissionFailureCode(error.code)
+            ? error.code : null;
+        if (error.transportFailureOutcome == SubmissionTransportFailureOutcome.unknown) {
+          return await _finishUnknown(claim, studioCode ?? 'acceptanceUnknown');
         }
         final notSent = error.transportFailureOutcome == SubmissionTransportFailureOutcome.notSent;
         final saved = await _store.finishHandoff(id: claim.id,
@@ -239,7 +244,7 @@ final class RegisteredMaterialHandoffService {
           failure: RegisteredMaterialHandoffFailure(
             kind: notSent ? RegisteredMaterialHandoffFailureKind.notSent
                 : RegisteredMaterialHandoffFailureKind.rejected,
-            code: notSent ? 'handoffNotSent' : 'handoffRejected',
+            code: notSent ? 'handoffNotSent' : studioCode ?? 'handoffRejected',
             message: notSent ? 'The Studio handoff was not sent.' : 'Studio refused this handoff.',
           ));
         return RegisteredMaterialHandoffRunResult(

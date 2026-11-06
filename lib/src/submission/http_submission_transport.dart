@@ -11,6 +11,7 @@ import 'submission_connections.dart';
 import 'submission_http.dart';
 import 'submission_json.dart' as j;
 import 'submission_record.dart';
+import 'studio_submission_failure.dart';
 
 /// Exact configured HTTPS packet transport with strict server acknowledgements.
 ///
@@ -80,12 +81,14 @@ final class HttpSubmissionTransport
     targetMatches: sameRegisteredMaterialTarget(packet.target, connection),
     authenticationBinding: packet.sourceRequest.authenticationBinding,
     encode: () => RegisteredMaterialSubmissionCodec.packetToJson(packet),
+    participant: true,
   );
 
   Future<SubmissionAcknowledgement> _submit({
     required String requestId, required String subjectId,
     required bool targetMatches, required Map<String, Object?> Function() encode,
     required SubmissionAuthenticationBinding? authenticationBinding,
+    bool participant = false,
   }) async {
     final operation = SubmissionHttpOperation(
       stage: SubmissionFailureStage.transport,
@@ -139,7 +142,11 @@ final class HttpSubmissionTransport
             'acknowledgementMissing',
           );
         }
-        rejectHttpStatus(response, SubmissionFailureStage.transport);
+        if (participant) {
+          rejectStudioHttpStatus(response, SubmissionFailureStage.transport);
+        } else {
+          rejectHttpStatus(response, SubmissionFailureStage.transport);
+        }
       }
       SubmissionAcknowledgement acknowledgement;
       try {
@@ -168,8 +175,14 @@ final class HttpSubmissionTransport
       return acknowledgement;
     } on SubmissionAdapterException catch (error) {
       final refused =
-          responseStatus == 401 && error.code == 'authRequired' ||
-          responseStatus == 403 && error.code == 'permissionDenied';
+          responseStatus == 401 &&
+              (error.code == 'authRequired' ||
+                  error.code == 'studioAuthenticationRequired' ||
+                  error.code == 'studioHttp401') ||
+          responseStatus == 403 &&
+              (error.code == 'permissionDenied' ||
+                  error.code == 'studioPermissionDenied' ||
+                  error.code == 'studioHttp403');
       throw SubmissionAdapterException(
         stage: error.stage,
         code: error.code,
