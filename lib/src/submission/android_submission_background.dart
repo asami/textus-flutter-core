@@ -138,6 +138,7 @@ void submissionBackgroundCallback() {
       } else {
         resources = await openDefaultAndroidSubmissionResources(
           lifetime: lifetime,
+          restoreParticipantAuthentication: true,
         );
         result = lifetime.isCurrent
             ? await SubmissionBackgroundRunner(

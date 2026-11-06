@@ -205,6 +205,7 @@ final class SubmissionTransferStatus {
     required this.observedAt,
     required this.storageConnectionId,
     required this.transportConnectionId,
+    required this.hasAuthenticationBinding,
     required this.upload,
     required this.submission,
     required List<SubmissionFileTransferStatus> files,
@@ -358,6 +359,7 @@ final class SubmissionTransferStatus {
       observedAt: observed,
       storageConnectionId: record.request.storageConnectionId,
       transportConnectionId: record.request.transportConnectionId,
+      hasAuthenticationBinding: record.request.authenticationBinding != null,
       upload: upload,
       submission: submission,
       files: [
@@ -448,6 +450,7 @@ final class SubmissionTransferStatus {
       observedAt: observed,
       storageConnectionId: null,
       transportConnectionId: record.request.transportConnectionId,
+      hasAuthenticationBinding: record.request.authenticationBinding != null,
       usesLakeDelivery: true,
       tklProgress: progress,
       registration: registration,
@@ -544,6 +547,11 @@ final class SubmissionTransferStatus {
   /// Safe transport connection identity, with no credentials or endpoint data.
   final String transportConnectionId;
 
+  /// Whether this immutable local intent contains an authentication binding.
+  /// This exposes no account data and establishes neither a current login nor
+  /// server ownership, dispatch permission or retry authority.
+  final bool hasAuthenticationBinding;
+
   /// Aggregate upload operation with actual receipt/required file counts.
   final SubmissionTransferOperationStatus upload;
 
@@ -587,6 +595,7 @@ final class SubmissionTransferStatus {
       observedAt == other.observedAt &&
       storageConnectionId == other.storageConnectionId &&
       transportConnectionId == other.transportConnectionId &&
+      hasAuthenticationBinding == other.hasAuthenticationBinding &&
       upload == other.upload &&
       submission == other.submission &&
       j.deepEquals(files, other.files) &&
@@ -616,6 +625,7 @@ final class SubmissionTransferStatus {
     observedAt,
     storageConnectionId,
     transportConnectionId,
+    hasAuthenticationBinding,
     upload,
     submission,
     j.deepHash(files),

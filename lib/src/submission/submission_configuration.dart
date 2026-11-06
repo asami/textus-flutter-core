@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'submission_connections.dart';
 import 'submission_json.dart' as j;
+import 'submission_participant_authentication_configuration.dart';
 
 /// Safe platform configuration failure. Only the fixed vocabulary is retained.
 final class SubmissionConfigurationException implements Exception {
@@ -68,6 +69,7 @@ final class SubmissionConfigurationSnapshot {
     this.selectedStorageConnectionId,
     this.selectedTransportConnectionId,
     Map<String, List<String>> referenceAccessBindings = const {},
+    this.participantAuthentication,
   }) : driveConnections = List.unmodifiable(driveConnections),
        httpConnections = List.unmodifiable(httpConnections),
        referenceAccessBindings = Map<String, List<String>>.unmodifiable({
@@ -119,6 +121,19 @@ final class SubmissionConfigurationSnapshot {
     if (this.referenceAccessBindings.length > 128 || associations > 128) {
       throw ArgumentError('Reference access bindings exceed their bound');
     }
+    final participant = participantAuthentication;
+    if (participant != null &&
+        (participant.trustedConnectionIds.any(
+              (id) => !this.httpConnections.any(
+                (c) => c.id == id && c.requiresBearerToken,
+              ),
+            ) ||
+            (selectedTransportConnectionId != null &&
+                !participant.trustedConnectionIds.contains(
+                  selectedTransportConnectionId,
+                )))) {
+      throw ArgumentError('Invalid participant submission configuration');
+    }
     if (utf8.encode(jsonEncode(toJson())).length > 128 * 65536) {
       throw ArgumentError('Submission configuration exceeds its bound');
     }
@@ -141,9 +156,13 @@ final class SubmissionConfigurationSnapshot {
   /// deeply frozen local declaration does not prove actual remote permissions.
   final Map<String, List<String>> referenceAccessBindings;
 
-  /// Detached closed version 2 JSON; connection definitions retain version 1.
+  /// Explicit authority/target intent, independent of server resolver access.
+  final SubmissionParticipantAuthenticationConfiguration?
+      participantAuthentication;
+
+  /// Detached closed v2 JSON, or v3 only when participant intent is present.
   Map<String, Object?> toJson() => {
-    'version': 2,
+    'version': participantAuthentication == null ? 2 : 3,
     'driveConnections': driveConnections.map((c) => c.toJson()).toList(),
     'httpConnections': httpConnections.map((c) => c.toJson()).toList(),
     'selectedStorageConnectionId': selectedStorageConnectionId,
@@ -152,13 +171,15 @@ final class SubmissionConfigurationSnapshot {
       for (final entry in referenceAccessBindings.entries)
         entry.key: entry.value.toList(),
     },
+    if (participantAuthentication != null)
+      'participantAuthentication': participantAuthentication!.toJson(),
   };
 
   /// Rejects corruption, missing/extra keys and unknown versions without fallback.
   factory SubmissionConfigurationSnapshot.fromJson(Map<String, Object?> json) =>
       j.decode(() {
         final version = j.integer(json['version']);
-        if (version != 1 && version != 2) {
+        if (version != 1 && version != 2 && version != 3) {
           throw const FormatException('Unsupported configuration version');
         }
         final value = j.exact(json, {
@@ -167,7 +188,8 @@ final class SubmissionConfigurationSnapshot {
           'httpConnections',
           'selectedStorageConnectionId',
           'selectedTransportConnectionId',
-          if (version == 2) 'referenceAccessBindings',
+          if (version >= 2) 'referenceAccessBindings',
+          if (version == 3) 'participantAuthentication',
         });
         return SubmissionConfigurationSnapshot(
           driveConnections: j
@@ -191,6 +213,11 @@ final class SubmissionConfigurationSnapshot {
                       in j.object(value['referenceAccessBindings']).entries)
                     entry.key: j.array(entry.value).map(j.string).toList(),
                 },
+          participantAuthentication: version == 3
+              ? SubmissionParticipantAuthenticationConfiguration.fromJson(
+                  value['participantAuthentication'],
+                )
+              : null,
         );
       });
 }
@@ -225,4 +252,17 @@ abstract interface class SubmissionConfigurationStore {
 
   /// Prevents new calls and drains/closes only this handle. Never deletes data.
   Future<void> close();
+}
+
+/// Optional native capability; the base store contract remains unchanged.
+abstract interface class SubmissionParticipantConfigurationStore
+    implements SubmissionConfigurationStore {
+  /// Atomically replaces this declaration, or explicitly clears it with null.
+  /// Validate the complete resulting snapshot before committing; preserve target
+  /// definitions, selection, reference bindings, queued intent and credentials.
+  /// A different authority affects future intent only, never retargets old rows
+  /// or adopts/erases credentials. Clearing later persists the ordinary v2 form.
+  Future<void> setParticipantAuthentication(
+    SubmissionParticipantAuthenticationConfiguration? configuration,
+  );
 }

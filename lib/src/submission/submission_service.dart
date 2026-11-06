@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import '../repository/local_capture_store.dart';
 import 'submission_adapters.dart';
+import 'submission_authentication.dart';
 import 'registered_material_handoff_service.dart';
 import 'submission_configuration.dart';
 import 'submission_json.dart' as j;
@@ -107,6 +108,8 @@ final class SubmissionService {
     Map<String, TklMaterialDeliveryClient> tklClients = const {},
     this._referenceAccessPolicy,
     this.registeredMaterialHandoffs,
+    this._authenticationContext,
+    this.requiresAuthentication = false,
     DateTime Function()? now,
     this.leaseDuration = const Duration(minutes: 5),
     this.operationTimeout = const Duration(minutes: 1),
@@ -140,6 +143,11 @@ final class SubmissionService {
   }
 
   final SubmissionQueueStore _queue;
+  final SubmissionAuthenticationContext? _authenticationContext;
+
+  /// Explicit participant composition gate; local bindings grant no authority.
+  /// When enabled, even legacy unbound intent requires an exact current context.
+  final bool requiresAuthentication;
 
   /// Optional borrowed Registered-source Studio capability. Custom compositions
   /// opt in explicitly; closing this service does not close that capability.
@@ -519,8 +527,9 @@ final class SubmissionService {
       return const SubmissionRunResult(outcome: SubmissionRunOutcome.offline);
     }
     SubmissionRecord? record;
+    var runPredicate = isRunCurrent;
     try {
-      if (!_current(isRunCurrent)) {
+      if (!_current(runPredicate)) {
         return const SubmissionRunResult(
           outcome: SubmissionRunOutcome.cancelled,
         );
@@ -534,10 +543,31 @@ final class SubmissionService {
         return const SubmissionRunResult(outcome: SubmissionRunOutcome.noWork);
       }
       _claims[record.request.id] = record;
-      _guard(isRunCurrent);
+      _guard(runPredicate);
       final request = record.request;
+      final binding = request.authenticationBinding;
+      final context = _authenticationContext;
+      if (requiresAuthentication || binding != null || context != null) {
+        if (binding == null ||
+            context == null ||
+            context.binding != binding ||
+            !context.isCurrent) {
+          throw const _StageFailure(
+            SubmissionFailureStage.configuration,
+            'authenticationRequired',
+            'Sign in to the account bound to this submission.',
+            false,
+          );
+        }
+        final callerPredicate = runPredicate;
+        bool boundRunCurrent() =>
+            (callerPredicate?.call() ?? true) &&
+            context.binding == binding &&
+            context.isCurrent;
+        runPredicate = boundRunCurrent;
+      }
       if (request.tklDelivery != null) {
-        return await _processTkl(record, isRunCurrent);
+        return await _processTkl(record, runPredicate);
       }
       for (final material in request.materials) {
         if (record!.reservations.containsKey(material.key)) continue;
@@ -550,12 +580,12 @@ final class SubmissionService {
             false,
           );
         }
-        record = await _renew(record, isRunCurrent);
+        record = await _renew(record, runPredicate);
         final prepared = await _remote(
           SubmissionFailureStage.storage,
           () => storage.prepare(request: request, material: material),
         );
-        _guard(isRunCurrent);
+        _guard(runPredicate);
         if (prepared.key != material.key ||
             prepared.providerId != storage.providerId) {
           throw const _StageFailure(
@@ -572,7 +602,7 @@ final class SubmissionService {
           now: _time(),
         );
         _claims[request.id] = record;
-        _guard(isRunCurrent);
+        _guard(runPredicate);
         return await _release(record, SubmissionRunOutcome.progress);
       }
       for (final material in request.materials) {
@@ -596,8 +626,8 @@ final class SubmissionService {
         }
         if (!record.receipts.containsKey(material.key)) {
           final bytes = await _original(material);
-          _guard(isRunCurrent);
-          record = await _renew(record, isRunCurrent);
+          _guard(runPredicate);
+          record = await _renew(record, runPredicate);
           final receipt = await _remote(
             SubmissionFailureStage.storage,
             () => storage.upload(
@@ -607,7 +637,7 @@ final class SubmissionService {
               bytes: bytes,
             ),
           );
-          _guard(isRunCurrent);
+          _guard(runPredicate);
           if (receipt.key != material.key ||
               receipt.providerId != storage.providerId) {
             throw const _StageFailure(
@@ -624,7 +654,7 @@ final class SubmissionService {
             now: _time(),
           );
           _claims[request.id] = record;
-          _guard(isRunCurrent);
+          _guard(runPredicate);
           return await _release(record, SubmissionRunOutcome.progress);
         }
       }
@@ -641,24 +671,24 @@ final class SubmissionService {
         request: request,
         receipts: record!.receipts,
       );
-      await _guardReferenceAccess(packet, isRunCurrent);
-      _guard(isRunCurrent);
+      await _guardReferenceAccess(packet, runPredicate);
+      _guard(runPredicate);
       record = await _queue.markTransportDispatch(
         id: request.id,
         leaseToken: record.leaseToken!,
         now: _time(),
       );
       _claims[request.id] = record;
-      _guard(isRunCurrent);
-      record = await _renew(record, isRunCurrent);
-      await _guardReferenceAccess(packet, isRunCurrent);
-      _guard(isRunCurrent);
-      record = await _renew(record, isRunCurrent);
+      _guard(runPredicate);
+      record = await _renew(record, runPredicate);
+      await _guardReferenceAccess(packet, runPredicate);
+      _guard(runPredicate);
+      record = await _renew(record, runPredicate);
       final acknowledgement = await _remote(
         SubmissionFailureStage.transport,
         () => transport.submit(packet),
       );
-      _guard(isRunCurrent);
+      _guard(runPredicate);
       if (acknowledgement.requestId != request.id ||
           acknowledgement.subjectId != request.subjectId) {
         throw const _StageFailure(
@@ -685,7 +715,7 @@ final class SubmissionService {
       return _lost(record);
     } on _StageFailure catch (failure) {
       try {
-        _guard(isRunCurrent);
+        _guard(runPredicate);
         final at = _time();
         final failed = await _queue.fail(
           id: record!.request.id,

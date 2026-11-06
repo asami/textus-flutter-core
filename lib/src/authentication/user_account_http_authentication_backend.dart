@@ -5,6 +5,8 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import '../submission/submission_authentication.dart';
+import '../submission/submission_connections.dart';
 import 'native_authentication_credential_store.dart';
 import 'user_account_authentication.dart';
 import 'user_account_http_wire.dart';
@@ -172,6 +174,117 @@ final class UserAccountHttpAuthenticationBackend
   _ClearanceOwner? _clearanceOwner;
   UserAccountHttpWireChallenge? _challenge;
   _SessionCommit? _pending;
+  int _authEpoch = 0;
+  final Set<Future<void>> _submissionLookups = {};
+
+  /// Borrows this accepted account for explicitly declared credential recipients.
+  /// Construction snapshots local intent without IO or calling [isRunCurrent].
+  UserAccountSubmissionScope createSubmissionScope({
+    required Iterable<HttpSubmissionConnection> trustedTargets,
+    required bool Function() isRunCurrent,
+  }) {
+    final active = _active;
+    if (!_submissionAvailable || active == null) {
+      throw StateError('Authenticated submission is unavailable');
+    }
+    final owner = _SubmissionOwner(
+      active.revision,
+      active.record.writeId,
+      active.record.pair.userAccountId,
+      _authEpoch,
+    );
+    final targets = <String, HttpSubmissionConnection>{};
+    try {
+      for (final target in trustedTargets) {
+        if (!target.requiresBearerToken ||
+            targets.containsKey(target.id) ||
+            targets.length >= 128) {
+          throw ArgumentError('Invalid authenticated submission targets');
+        }
+        targets[target.id] = target;
+      }
+      if (targets.isEmpty) {
+        throw ArgumentError('Invalid authenticated submission targets');
+      }
+    } catch (_) {
+      throw ArgumentError('Invalid authenticated submission targets');
+    }
+    final binding = SubmissionAuthenticationBinding(
+      authority: profile,
+      userAccountId: owner.userAccountId,
+    );
+    if (!_ownsSubmission(owner, binding)) {
+      throw StateError('Authenticated submission is unavailable');
+    }
+    return UserAccountSubmissionScope._(
+      this,
+      owner,
+      binding,
+      Map<String, HttpSubmissionConnection>.unmodifiable(targets),
+      isRunCurrent,
+    );
+  }
+
+  bool get _submissionAvailable =>
+      !_closed && !_busy && _pending == null && !_unresolvedCleanup;
+
+  bool _ownsSubmission(
+    _SubmissionOwner owner,
+    SubmissionAuthenticationBinding binding,
+  ) {
+    final active = _active;
+    return _submissionAvailable &&
+        active != null &&
+        owner.epoch == _authEpoch &&
+        owner.revision == active.revision &&
+        owner.writeId == active.record.writeId &&
+        owner.userAccountId == active.record.pair.userAccountId &&
+        binding.authorityProfileId == profile.profileId &&
+        binding.authorityBaseUri == profile.serviceBaseUri &&
+        binding.userAccountId == owner.userAccountId;
+  }
+
+  Future<String?> _submissionToken(UserAccountSubmissionScope scope) {
+    final result = Completer<String?>();
+    final done = Completer<void>();
+    final drain = done.future;
+    // Reserve before native dispatch, including a reentrant platform handler.
+    _submissionLookups.add(drain);
+    unawaited(result.future.then<void>((_) {}, onError: (Object _) {}));
+    () async {
+      try {
+        if (!scope._isCurrent()) {
+          result.complete(null);
+          return;
+        }
+        final active = _active!;
+        final entry = await _store.read(profile.profileId);
+        if (!scope._isCurrent() || !identical(active, _active)) {
+          result.complete(null);
+          return;
+        }
+        if (entry == null ||
+            entry.revision != scope._owner.revision ||
+            !_record(entry).same(active.record)) {
+          result.complete(null);
+          return;
+        }
+        result.complete(active.record.pair.accessToken);
+      } catch (_) {
+        if (scope._isCurrent()) {
+          result.completeError(
+            StateError('Submission credentials are unavailable'),
+          );
+        } else {
+          result.complete(null);
+        }
+      } finally {
+        _submissionLookups.remove(drain);
+        done.complete();
+      }
+    }();
+    return result.future;
+  }
 
   void _guard(UserAccountAuthenticationOperation operation) {
     if (_closed || !operation.isCurrent) {
@@ -195,6 +308,7 @@ final class UserAccountHttpAuthenticationBackend
     _workDone = done;
     try {
       _guard(operation);
+      _authEpoch++;
       return await body();
     } on _SafeFailure catch (failure) {
       return UserAccountSignInRejected(failure.reason);
@@ -445,6 +559,7 @@ final class UserAccountHttpAuthenticationBackend
   Future<UserAccountLogoutResult> signOut({
     required UserAccountAuthenticationOperation operation,
   }) async {
+    _authEpoch++;
     final active = _active;
     _active = null;
     _challenge = null;
@@ -665,6 +780,7 @@ final class UserAccountHttpAuthenticationBackend
   Future<void> close() {
     if (_closing case final closing?) return closing;
     _closed = true;
+    _authEpoch++;
     _active = null;
     _clearanceSelectionRecorded = false;
     _clearanceOwner = null;
@@ -674,6 +790,7 @@ final class UserAccountHttpAuthenticationBackend
     _closing = done.future;
     _observe(done.future);
     final work = _workDone?.future;
+    final lookups = List<Future<void>>.of(_submissionLookups);
     () async {
       var failed = false;
       try {
@@ -697,6 +814,9 @@ final class UserAccountHttpAuthenticationBackend
           failed = true;
         }
       }
+      // Owned native close must retire its handle before readonly work drains.
+      // Borrowed handles stay open, but their accepted lookups also drain here.
+      await Future.wait(lookups);
       if (failed) {
         done.completeError(
           const _SafeFailure(
@@ -712,6 +832,87 @@ final class UserAccountHttpAuthenticationBackend
 
   @override
   String toString() => 'UserAccountHttpAuthenticationBackend';
+}
+
+/// A token-free account/run fence borrowing one backend's accepted native owner.
+/// Recipient declarations are local configuration, not server realm permission.
+final class UserAccountSubmissionScope
+    implements AuthenticatedSubmissionCredentialProvider {
+  UserAccountSubmissionScope._(
+    this._backend,
+    this._owner,
+    SubmissionAuthenticationBinding binding,
+    this._targets,
+    this._isRunCurrent,
+  ) {
+    _context = SubmissionAuthenticationContext(
+      binding: binding,
+      isCurrent: _isCurrent,
+    );
+  }
+
+  final UserAccountHttpAuthenticationBackend _backend;
+  final _SubmissionOwner _owner;
+  final Map<String, HttpSubmissionConnection> _targets;
+  final bool Function() _isRunCurrent;
+  bool _retired = false;
+  late final SubmissionAuthenticationContext _context;
+  SubmissionAuthenticationContext get context => _context;
+  SubmissionAuthenticationBinding get binding => context.binding;
+
+  bool _isCurrent() {
+    if (_retired || !_backend._ownsSubmission(_owner, binding)) {
+      _retired = true;
+      return false;
+    }
+    var runCurrent = false;
+    try {
+      runCurrent = _isRunCurrent();
+    } catch (_) {
+      // A failing borrowed lifetime fence withdraws this scope permanently.
+    }
+    if (_retired || !runCurrent || !_backend._ownsSubmission(_owner, binding)) {
+      _retired = true;
+      return false;
+    }
+    return true;
+  }
+
+  @override
+  Future<String?> bearerToken(String connectionId) => Future.value(null);
+
+  @override
+  Future<String?> bearerTokenFor({
+    required SubmissionAuthenticationBinding binding,
+    required HttpSubmissionConnection connection,
+  }) {
+    final target = _targets[connection.id];
+    if (binding != this.binding ||
+        target == null ||
+        target.endpoint != connection.endpoint ||
+        target.requiresBearerToken != connection.requiresBearerToken) {
+      return Future.value(null);
+    }
+    if (!_isCurrent()) return Future.value(null);
+    return _backend._submissionToken(this);
+  }
+
+  @override
+  String toString() => 'UserAccountSubmissionScope';
+}
+
+/// Token-free local witness; neither persisted binding nor a storage record.
+final class _SubmissionOwner {
+  const _SubmissionOwner(
+    this.revision,
+    this.writeId,
+    this.userAccountId,
+    this.epoch,
+  );
+  final String revision;
+  final String writeId;
+  final String userAccountId;
+  final int epoch;
 }
 
 final class _SessionCommit implements UserAccountAuthenticationSessionCommit {

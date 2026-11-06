@@ -7,13 +7,16 @@ import 'package:sqflite/sqflite.dart' as sqlite;
 import 'submission_configuration.dart';
 import 'submission_connections.dart';
 import 'submission_json.dart' as j;
+import 'submission_participant_authentication_configuration.dart';
 
 /// Owned iOS durable public configuration and a borrowed credential read port.
 ///
 /// Only safe connection definitions, selections and reference declarations are
 /// stored. Credentials remain ephemeral and owned by the supplied provider.
 final class IosSubmissionConfigurationStore
-    implements SubmissionConfigurationStore, SubmissionCredentialProvider {
+    implements
+        SubmissionParticipantConfigurationStore,
+        SubmissionCredentialProvider {
   IosSubmissionConfigurationStore._(
     this._database,
     this._credentials,
@@ -167,7 +170,8 @@ final class IosSubmissionConfigurationStore
         throw const FormatException('Configuration exceeds its bound');
       }
       final decoded = j.object(jsonDecode(body));
-      if (j.integer(decoded['version']) != 2) {
+      final version = j.integer(decoded['version']);
+      if (version != 2 && version != 3) {
         throw const FormatException('Unsupported iOS configuration version');
       }
       return SubmissionConfigurationSnapshot.fromJson(decoded);
@@ -189,6 +193,7 @@ final class IosSubmissionConfigurationStore
         selectedStorageConnectionId: current.selectedStorageConnectionId,
         selectedTransportConnectionId: current.selectedTransportConnectionId,
         referenceAccessBindings: bindings ?? current.referenceAccessBindings,
+        participantAuthentication: current.participantAuthentication,
       );
     } catch (_) {
       throw SubmissionConfigurationException.safe('configurationInvalid');
@@ -232,6 +237,35 @@ final class IosSubmissionConfigurationStore
   @override
   Future<SubmissionConfigurationSnapshot> snapshot() =>
       _operation(() => _transaction(_read));
+
+  /// Atomically replaces public operator intent without consulting credentials.
+  @override
+  Future<void> setParticipantAuthentication(
+    SubmissionParticipantAuthenticationConfiguration? configuration,
+  ) => _operation(
+    () => _transaction((tx) async {
+      final current = await _read(tx);
+      for (final id in configuration?.trustedConnectionIds ?? <String>[]) {
+        if (!current.httpConnections.any((connection) => connection.id == id)) {
+          throw SubmissionConfigurationException.safe('connectionMissing');
+        }
+      }
+      final SubmissionConfigurationSnapshot next;
+      try {
+        next = SubmissionConfigurationSnapshot(
+          driveConnections: current.driveConnections,
+          httpConnections: current.httpConnections,
+          selectedStorageConnectionId: current.selectedStorageConnectionId,
+          selectedTransportConnectionId: current.selectedTransportConnectionId,
+          referenceAccessBindings: current.referenceAccessBindings,
+          participantAuthentication: configuration,
+        );
+      } on ArgumentError {
+        throw SubmissionConfigurationException.safe('configurationInvalid');
+      }
+      await _write(tx, next);
+    }),
+  );
 
   @override
   Future<void> putDrive(DriveSubmissionConnection connection) {
@@ -294,16 +328,20 @@ final class IosSubmissionConfigurationStore
                 ))) {
           throw SubmissionConfigurationException.safe('connectionMissing');
         }
-        await _write(
-          tx,
-          SubmissionConfigurationSnapshot(
+        final SubmissionConfigurationSnapshot next;
+        try {
+          next = SubmissionConfigurationSnapshot(
             driveConnections: current.driveConnections,
             httpConnections: current.httpConnections,
             selectedStorageConnectionId: storageConnectionId,
             selectedTransportConnectionId: transportConnectionId,
             referenceAccessBindings: current.referenceAccessBindings,
-          ),
-        );
+            participantAuthentication: current.participantAuthentication,
+          );
+        } on ArgumentError {
+          throw SubmissionConfigurationException.safe('configurationInvalid');
+        }
+        await _write(tx, next);
       }),
     );
   }

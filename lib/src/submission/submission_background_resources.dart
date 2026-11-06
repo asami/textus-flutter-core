@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:http/http.dart' as http;
 
+import '../authentication/user_account_http_authentication_backend.dart';
 import '../repository/file_capture_store.dart';
 import 'android_submission_background.dart';
 import 'android_submission_configuration.dart';
@@ -11,6 +12,8 @@ import 'registered_material_handoff_service.dart';
 import 'registered_material_handoff_store.dart';
 import 'sqlite_submission_queue_store.dart';
 import 'submission_adapters.dart';
+import 'submission_configuration.dart';
+import 'submission_participant_runtime.dart';
 import 'submission_queue_store.dart';
 import 'submission_reference_access.dart';
 import 'submission_run_lifetime.dart';
@@ -49,8 +52,9 @@ final class SubmissionBackgroundResources {
 }
 
 /// Opens an owned Android composition over the existing default application
-/// support queue/original roots. No network, consent, scheduling or Commit occurs
-/// during open. All persisted definitions are used, regardless of selection.
+/// support queue/original roots. Opening is inert unless declared participant
+/// authentication restoration is explicitly requested by the headless owner.
+/// A supplied authentication scope is borrowed without credential or network IO.
 ///
 /// The optional scheduler is borrowed; otherwise an owned Android facade is
 /// created. Cancellation closes the owned HTTP client immediately. Close retires
@@ -60,11 +64,15 @@ final class SubmissionBackgroundResources {
 Future<SubmissionBackgroundResources> openDefaultAndroidSubmissionResources({
   required SubmissionRunLifetime lifetime,
   SubmissionWakeScheduler? scheduler,
+  UserAccountSubmissionScope? authenticationScope,
+  bool restoreParticipantAuthentication = false,
+  bool requiresAuthentication = false,
 }) async {
   final configuration = AndroidSubmissionConfigurationStore();
   SubmissionQueueStore? queue;
   SubmissionService? service;
   RegisteredMaterialHandoffService? handoffs;
+  SubmissionParticipantRuntime? participant;
   http.Client? client;
   AndroidSubmissionBackgroundScheduler? ownedScheduler;
   Future<void>? closeFuture;
@@ -82,30 +90,40 @@ Future<SubmissionBackgroundResources> openDefaultAndroidSubmissionResources({
 
   Future<void> cleanup() async {
     lifetime.retire();
-    Object? failure;
-    StackTrace? failureStack;
+    var cleanupFailed = false;
     Future<void> attempt(FutureOr<void> Function() action) async {
       try {
         await action();
-      } catch (error, stack) {
-        failure ??= error;
-        failureStack ??= stack;
+      } catch (_) {
+        cleanupFailed = true;
       }
     }
 
     await attempt(closeClient);
     if (handoffs != null) await attempt(handoffs.close);
     if (service != null) await attempt(service.close);
+    if (participant != null) await attempt(participant.close);
     if (queue != null) await attempt(queue.close);
     await attempt(configuration.close);
     if (ownedScheduler != null) await attempt(ownedScheduler.close);
-    if (failure != null) Error.throwWithStackTrace(failure!, failureStack!);
+    if (cleanupFailed) {
+      throw SubmissionConfigurationException.safe('configurationUnavailable');
+    }
   }
 
   Future<void> close() => closeFuture ??= cleanup();
   try {
     current();
     final snapshot = await configuration.snapshot();
+    current();
+    final authentication = participant = await SubmissionParticipantRuntime.open(
+      snapshot: snapshot,
+      legacyCredentials: configuration,
+      lifetime: lifetime,
+      authenticationScope: authenticationScope,
+      restoreParticipantAuthentication: restoreParticipantAuthentication,
+      requiresAuthentication: requiresAuthentication,
+    );
     current();
     queue = await openDefaultSubmissionQueueStore();
     current();
@@ -123,11 +141,17 @@ Future<SubmissionBackgroundResources> openDefaultAndroidSubmissionResources({
     );
     final wake =
         scheduler ?? (ownedScheduler = AndroidSubmissionBackgroundScheduler());
+    bool runCurrent() => lifetime.isCurrent && authentication.isCurrent;
     final transports = {
-      for (final connection in snapshot.httpConnections)
+      for (final connection in snapshot.httpConnections.where(
+        authentication.permits,
+      ))
         connection.id: HttpSubmissionTransport(
-          connection: connection, client: client, credentials: configuration,
-          isRunCurrent: () => lifetime.isCurrent, cancellation: lifetime.cancelled,
+          connection: connection,
+          client: client,
+          credentials: authentication.credentials,
+          isRunCurrent: runCurrent,
+          cancellation: lifetime.cancelled,
         ),
     };
     final handoffStore = queue;
@@ -137,26 +161,32 @@ Future<SubmissionBackgroundResources> openDefaultAndroidSubmissionResources({
     handoffs = RegisteredMaterialHandoffService(
       queue: queue, store: handoffStore as RegisteredMaterialHandoffStore,
       transports: transports, scheduler: wake,
+      requiresAuthentication: authentication.requiresAuthentication,
+      authenticationContext: authentication.authenticationContext,
     );
     service = SubmissionService(
       queue: queue,
       materials: materials,
       scheduler: wake,
       registeredMaterialHandoffs: handoffs,
+      requiresAuthentication: authentication.requiresAuthentication,
+      authenticationContext: authentication.authenticationContext,
       referenceAccessPolicy: ConfiguredSubmissionReferenceAccessPolicy(
         configuration: configuration,
       ),
       tklClients: {
         for (final connection in snapshot.httpConnections.where(
           (connection) =>
+              authentication.permits(connection) &&
               connection.requiresBearerToken &&
               connection.endpoint.path.endsWith('/'),
         ))
           connection.id: TklMaterialDeliveryHttpClient(
             connection: connection,
             client: client,
-            credentials: configuration,
-            isRunCurrent: () => lifetime.isCurrent,
+            credentials: authentication.credentials,
+            authenticationBinding: authentication.binding,
+            isRunCurrent: runCurrent,
             cancellation: lifetime.cancelled,
           ),
       },
@@ -166,7 +196,7 @@ Future<SubmissionBackgroundResources> openDefaultAndroidSubmissionResources({
             connection: connection,
             client: client,
             credentials: configuration,
-            isRunCurrent: () => lifetime.isCurrent,
+            isRunCurrent: runCurrent,
             cancellation: lifetime.cancelled,
           ),
       },

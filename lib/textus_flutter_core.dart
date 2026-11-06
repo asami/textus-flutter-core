@@ -67,6 +67,7 @@ export 'src/retrieval/material_retrieval.dart';
 export 'src/retrieval/local_material_retrieval_service.dart';
 
 // Durable explicit submission intent, resumable checkpoints and borrowed ports.
+export 'src/submission/submission_authentication.dart';
 export 'src/submission/submission_request.dart';
 export 'src/submission/registered_material_submission.dart';
 export 'src/submission/registered_material_submission_codec.dart';
@@ -86,6 +87,7 @@ export 'src/submission/submission_connections.dart';
 export 'src/submission/drive_submission_storage_adapter.dart';
 export 'src/submission/http_submission_transport.dart';
 export 'src/submission/submission_configuration.dart';
+export 'src/submission/submission_participant_authentication_configuration.dart';
 export 'src/submission/submission_reference_access.dart';
 export 'src/submission/android_submission_configuration.dart';
 export 'src/submission/ios_submission_configuration.dart';

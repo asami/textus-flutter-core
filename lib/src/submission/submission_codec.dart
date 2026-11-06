@@ -1,19 +1,22 @@
 import '../capture/capture_material.dart';
 import 'submission_adapters.dart';
+import 'submission_authentication.dart';
 import 'submission_json.dart' as j;
 import 'submission_record.dart';
 import 'submission_request.dart';
 import 'tkl_material_delivery_codec.dart';
 import 'tkl_original_content.dart';
 
-/// Exact request/packet v1 and record v2 schemas, with detached output JSON.
+/// Exact local request v1–3 and server packet v1, with detached output JSON.
 /// Exact legacy record v1 remains readable without rewriting persistence.
 /// Decoders throw [FormatException] for unknown/missing keys, invalid scalar
 /// types/calendar times and inconsistent values; they never repair persistence.
 abstract final class SubmissionCodec {
   /// Encodes the complete immutable request, including its local document.
   static Map<String, Object?> requestToJson(SubmissionRequest value) => {
-    'version': value.tklDelivery == null ? 1 : 2,
+    'version': value.authenticationBinding != null
+        ? 3
+        : value.tklDelivery == null ? 1 : 2,
     'id': value.id,
     'kind': value.kind,
     'subjectId': value.subjectId,
@@ -24,15 +27,19 @@ abstract final class SubmissionCodec {
     'transportConnectionId': value.transportConnectionId,
     'storageConnectionId': value.storageConnectionId,
     'extensions': j.detach(value.extensions),
-    if (value.tklDelivery != null)
-      'tklDelivery': TklMaterialDeliveryCodec.requestToJson(value.tklDelivery!),
+    if (value.tklDelivery != null || value.authenticationBinding != null)
+      'tklDelivery': value.tklDelivery == null
+          ? null
+          : TklMaterialDeliveryCodec.requestToJson(value.tklDelivery!),
+    if (value.authenticationBinding != null)
+      'authenticationBinding': value.authenticationBinding!.toJson(),
   };
 
-  /// Decodes exactly version 1 and snapshots all nested JSON.
+  /// Decodes closed local versions 1–3 without adopting unbound legacy intent.
   static SubmissionRequest requestFromJson(Map<String, Object?> json) =>
       j.decode(() {
         final version = j.integer(json['version']);
-        if (version != 1 && version != 2) {
+        if (version != 1 && version != 2 && version != 3) {
           throw const FormatException('Unsupported submission request version');
         }
         final v = j.exact(json, {
@@ -47,7 +54,8 @@ abstract final class SubmissionCodec {
           'transportConnectionId',
           'storageConnectionId',
           'extensions',
-          if (version == 2) 'tklDelivery',
+          if (version >= 2) 'tklDelivery',
+          if (version == 3) 'authenticationBinding',
         });
         return SubmissionRequest(
           id: j.string(v['id']),
@@ -63,7 +71,10 @@ abstract final class SubmissionCodec {
           transportConnectionId: j.string(v['transportConnectionId']),
           storageConnectionId: j.nullableString(v['storageConnectionId']),
           extensions: j.object(v['extensions']),
-          tklDelivery: version == 1
+          authenticationBinding: version == 3
+              ? SubmissionAuthenticationBinding.fromJson(v['authenticationBinding'])
+              : null,
+          tklDelivery: version == 1 || (version == 3 && v['tklDelivery'] == null)
               ? null
               : TklMaterialDeliveryCodec.requestFromJson(v['tklDelivery']),
         );

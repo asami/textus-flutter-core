@@ -1,4 +1,5 @@
 import '../capture/capture_material.dart';
+import 'submission_authentication.dart';
 import 'submission_json.dart' as j;
 import 'tkl_material_delivery.dart';
 
@@ -50,6 +51,7 @@ final class SubmissionRequest {
     required String transportConnectionId,
     String? storageConnectionId,
     this.tklDelivery,
+    this.authenticationBinding,
     Map<String, Object?> extensions = const {},
   }) : id = j.token(id),
        kind = j.token(kind),
@@ -109,6 +111,9 @@ final class SubmissionRequest {
   /// Explicit server-mediated route. Null retains the complete legacy route.
   final TklMaterialDeliveryRequest? tklDelivery;
 
+  /// Local immutable participant intent; null preserves legacy unbound intent.
+  final SubmissionAuthenticationBinding? authenticationBinding;
+
   /// Immutable opaque presentation/execution extensions.
   final Map<String, Object?> extensions;
 
@@ -124,6 +129,7 @@ final class SubmissionRequest {
       j.deepEquals(materials, other.materials) &&
       transportConnectionId == other.transportConnectionId &&
       storageConnectionId == other.storageConnectionId &&
+      authenticationBinding == other.authenticationBinding &&
       j.deepEquals(extensions, other.extensions) &&
       tklDelivery?.requestId == other.tklDelivery?.requestId &&
       j.deepEquals(tklDelivery?.contribution, other.tklDelivery?.contribution);
@@ -139,6 +145,7 @@ final class SubmissionRequest {
     j.deepHash(materials),
     transportConnectionId,
     storageConnectionId,
+    authenticationBinding,
     j.deepHash(extensions),
     tklDelivery?.requestId,
     j.deepHash(tklDelivery?.contribution),

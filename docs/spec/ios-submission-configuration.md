@@ -1,7 +1,8 @@
 # iOS submission configuration
 
-`IosSubmissionConfigurationStore` implements `SubmissionConfigurationStore` and
-`SubmissionCredentialProvider`. Its private constructor is reached through
+`IosSubmissionConfigurationStore` implements the optional
+`SubmissionParticipantConfigurationStore` (including the unchanged base
+`SubmissionConfigurationStore`) and `SubmissionCredentialProvider`. Its private constructor is reached through
 `open(databasePath:, factory:, credentials:)`. The handle owns one independent
 SQLite connection; the optional credential provider is borrowed and read-only.
 
@@ -23,8 +24,13 @@ and inserts the legitimate empty version 2 `SubmissionConfigurationSnapshot`.
 An absent database is the only source of that initial empty configuration.
 
 The sole body is exactly `snapshot.toJson()`: safe immutable Drive and HTTP
-definitions, selection and explicit reference-access bindings. The existing
-strict snapshot and connection codecs govern accepted schemas and versions.
+definitions, selection, explicit reference-access bindings and optional public
+participant intent. Exact body v2 has no participant key; exact body v3 includes
+the nonnull closed `SubmissionParticipantAuthenticationConfiguration` DTO.
+The shared strict snapshot/connection/authority codecs govern both forms.
+Legacy body v1 remains unsupported on iOS, as do unknown future versions and
+malformed, missing/extra-key or null-participant v3 bodies. Reads never rewrite
+an old v2 body or adopt its authenticated HTTP targets.
 The shared bounds remain 128 total connection IDs, 65536 UTF-8 bytes per
 definition, 128 × 65536 UTF-8 bytes per snapshot, and 128 aggregate reference
 associations. No additional persisted fields are allowed. Before returning a
@@ -69,16 +75,37 @@ Invalid whole snapshots fail before committing any partial addition.
 
 `select` accepts only registered IDs of the exact requested kind; null clears
 that selection. Unknown or wrong-kind IDs fail with `connectionMissing`.
-Definitions and reference declarations remain unchanged.
+Definitions, reference declarations and participant intent remain unchanged.
+In participant mode a registered but undeclared selected transport fails with
+`configurationInvalid` before writing. Null transport selection remains valid
+and preserves the declaration.
 
 `setReferenceAccess` validates exact safe IDs, at most 128 supplied storage IDs
 and no duplicates before IO. Its transaction requires a registered HTTP target
 and registered Drive storage targets; wrong-kind or missing IDs fail with
 `connectionMissing`. It replaces only that target's declaration. An empty list
 is explicit revocation; an absent key means access has not been declared.
-Selection and definitions are preserved, and the complete resulting snapshot
+Selection, definitions and participant intent are preserved, and the complete resulting snapshot
 must satisfy the aggregate bound before commit. A declaration records operator
 intent; it does not prove actual server or Drive permissions.
+
+`setParticipantAuthentication(configuration)` uses the existing owned-operation,
+shared-coordinator and transaction machinery, reads the fresh full singleton,
+then validates the complete proposed snapshot before `_write`. Every trusted ID
+must be registered as HTTP: missing and wrong-kind IDs fail `connectionMissing`;
+anonymous HTTP targets or a selected transport outside the declaration fail
+`configurationInvalid`. Whole-snapshot bound and model errors also become
+`configurationInvalid` inside the model-validation boundary, while SQL IO remains
+`configurationUnavailable`. A failure leaves the complete retained body intact.
+
+A nonnull declaration writes snapshot body v3; explicit null clears only this
+operator intent and writes canonical v2 without a nullable participant key.
+Changing authority/profile affects future intent only, never adopts or erases a
+protected authentication slot, retargets queued requests or alters legacy
+credentials. The setter and snapshots perform no credential read, login,
+refresh, logout, HTTP, permission request or wake. `_next`, direct selection,
+registration and reference mutations all preserve the current declaration.
+There is no cache, schema bump, migration, extra table or secret-storage path.
 
 Failed input validation, identity conflicts and invalid resulting snapshots
 leave accepted durable state unchanged. No operation changes a queue, a

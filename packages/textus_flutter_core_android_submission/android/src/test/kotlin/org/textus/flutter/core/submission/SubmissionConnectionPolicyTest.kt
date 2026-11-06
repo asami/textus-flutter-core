@@ -162,7 +162,7 @@ class SubmissionConnectionPolicyTest {
         val legacy = mapOf("version" to 1, "storageConnectionId" to null, "transportConnectionId" to null)
         // When closed keys, versions, scalars, ids, duplicates or list bounds corrupt the row.
         for (value in listOf(current - "referenceAccessBindings", current + ("extra" to true),
-                current + ("version" to 3), current + ("version" to 2.0),
+                current + ("version" to 4), current + ("version" to 2.0),
                 current + ("version" to "2"), current + ("storageConnectionId" to false),
                 legacy + ("referenceAccessBindings" to emptyMap<String, Any?>()))) {
             // Then the actual pure decoder rejects without retaining private details.
@@ -195,6 +195,146 @@ class SubmissionConnectionPolicyTest {
         assertEquals(mapOf("server_0" to access), SubmissionConnectionPolicy.referenceAccessBindings(once))
         assertEquals(mapOf("server" to listOf("drive")), SubmissionConnectionPolicy.referenceAccessBindings(current))
         assertEquals(1, legacy["version"])
+    }
+
+    private fun participant(ids: List<String> = listOf("server"), profile: String = "operator.main",
+        base: String = "https://authority.example/account/"): Map<String, Any?> =
+        mapOf("version" to 1, "authorityProfileId" to profile, "authorityBaseUri" to base,
+            "trustedConnectionIds" to ids)
+
+    @Test fun participantSelectionDetachesAndPreservesModeAcrossBothMutations() {
+        // Given mutable operator targets and a literal selection with independent resolver access.
+        val ids = mutableListOf("server", "laterServer")
+        val declaration = participant(ids).toMutableMap()
+        val references = mutableMapOf("server" to mutableListOf("drive"))
+        val supplied = mapOf("version" to 3, "storageConnectionId" to "drive",
+            "transportConnectionId" to "server", "referenceAccessBindings" to references,
+            "participantAuthentication" to declaration)
+        val definitions = listOf(drive(), drive(id = "laterDrive"), http(), http(id = "laterServer"))
+        // When actual policy decodes and changes selection and one reference declaration.
+        val decoded = SubmissionConnectionPolicy.selection(supplied)
+        ids.clear()
+        declaration["authorityProfileId"] = "changed"
+        references["server"]!!.clear()
+        val selected = SubmissionConnectionPolicy.withSelection(definitions, decoded, "laterDrive", "laterServer")
+        val changed = SubmissionConnectionPolicy.setReferenceAccess(definitions, selected, "laterServer", listOf("laterDrive"))
+        // Then exact ordered intent and unrelated fields survive detached from supplied containers.
+        assertEquals(participant(listOf("server", "laterServer")), SubmissionConnectionPolicy.participantAuthentication(decoded))
+        assertEquals(3, changed["version"])
+        assertEquals(SubmissionConnectionPolicy.participantAuthentication(decoded), SubmissionConnectionPolicy.participantAuthentication(changed))
+        assertEquals("laterDrive", changed["storageConnectionId"])
+        assertEquals("laterServer", changed["transportConnectionId"])
+        assertEquals(mapOf("server" to listOf("drive"), "laterServer" to listOf("laterDrive")),
+            SubmissionConnectionPolicy.referenceAccessBindings(changed))
+        assertEquals(mapOf("server" to listOf("drive")), SubmissionConnectionPolicy.referenceAccessBindings(decoded))
+    }
+
+    @Test fun participantReplacementAndClearPreserveDefinitionsSelectionReferencesAndSecretRows() {
+        // Given real policy-validated secret/grant rows and an ordinary literal v2 selection.
+        val rows = listOf(
+            SubmissionConnectionPolicy.row(mapOf("version" to 1, "connection" to drive(), "httpBearerToken" to null, "driveGranted" to true)),
+            SubmissionConnectionPolicy.row(mapOf("version" to 1, "connection" to http(), "httpBearerToken" to "PRIVATE_MARKER_token", "driveGranted" to false)))
+        val retainedRows = rows.map { it.toMap() }
+        val definitions = rows.map { SubmissionConnectionPolicy.definition(it["connection"]) }
+        val ordinary = mapOf("version" to 2, "storageConnectionId" to "drive",
+            "transportConnectionId" to "server", "referenceAccessBindings" to mapOf("server" to listOf("drive")))
+        // When explicit setter provision, authority replacement and null clear execute.
+        val provisioned = SubmissionConnectionPolicy.setParticipantAuthentication(definitions, ordinary, participant())
+        val replacement = participant(profile = "operator.next", base = "https://next.example/account/")
+        val replaced = SubmissionConnectionPolicy.setParticipantAuthentication(definitions, provisioned, replacement)
+        val cleared = SubmissionConnectionPolicy.setParticipantAuthentication(definitions, replaced, null)
+        // Then only the declaration/version changed and clear restores the exact ordinary shape.
+        assertEquals(3, provisioned["version"])
+        assertEquals(replacement, SubmissionConnectionPolicy.participantAuthentication(replaced))
+        assertEquals(provisioned - "participantAuthentication", replaced - "participantAuthentication")
+        assertEquals(ordinary, cleared)
+        assertFalse(cleared.containsKey("participantAuthentication"))
+        assertEquals(retainedRows, rows)
+        assertEquals(listOf(drive(), http()), definitions)
+        assertEquals("PRIVATE_MARKER_token", rows[1]["httpBearerToken"])
+        assertEquals(true, rows[0]["driveGranted"])
+    }
+
+    @Test fun participantOldLiteralVersionsRemainUnchangedWithoutAdoptingAuthenticatedTargets() {
+        // Given independently literal accepted old selections and an authenticated registered target.
+        val v1 = mapOf("version" to 1, "storageConnectionId" to "drive", "transportConnectionId" to "server")
+        val v2 = mapOf("version" to 2, "storageConnectionId" to "drive", "transportConnectionId" to "server",
+            "referenceAccessBindings" to mapOf("server" to listOf("drive")))
+        val definitions = listOf(drive(), http())
+        for (literal in listOf(v1, v2)) {
+            // When actual policy reads, reselects and replaces reference access.
+            val decoded = SubmissionConnectionPolicy.selection(literal)
+            val selected = SubmissionConnectionPolicy.withSelection(definitions, decoded, "drive", "server")
+            val bound = SubmissionConnectionPolicy.setReferenceAccess(definitions, decoded, "server", listOf("drive"))
+            // Then reads keep the exact old literal and writes never infer participant intent.
+            assertEquals(literal, decoded)
+            assertNull(SubmissionConnectionPolicy.participantAuthentication(decoded))
+            assertNull(SubmissionConnectionPolicy.participantAuthentication(selected))
+            assertNull(SubmissionConnectionPolicy.participantAuthentication(bound))
+            assertFalse(selected.containsKey("participantAuthentication"))
+            assertFalse(bound.containsKey("participantAuthentication"))
+        }
+    }
+
+    @Test fun participantClosedStructuralSchemaRejectsMalformedValuesWithoutRepair() {
+        // Given a complete declaration and closed v3 selection.
+        val declaration = participant()
+        val current = mapOf("version" to 3, "storageConnectionId" to null, "transportConnectionId" to "server",
+            "referenceAccessBindings" to emptyMap<String, Any?>(), "participantAuthentication" to declaration)
+        val badDeclarations = listOf(null, "PRIVATE_MARKER", declaration - "authorityProfileId",
+            declaration + ("version" to 2), declaration + ("version" to 1.0),
+            declaration + ("token" to "PRIVATE_MARKER"), declaration + ("account" to "PRIVATE_MARKER"),
+            declaration + ("session" to "PRIVATE_MARKER"), declaration + ("authorityBaseUri" to 7),
+            declaration + ("authorityProfileId" to false), declaration + ("trustedConnectionIds" to "server"),
+            declaration + ("trustedConnectionIds" to listOf(7))) +
+            listOf(emptyList<String>(), listOf("server", "server"), listOf("../PRIVATE_MARKER"),
+                (0..128).map { "server_$it" }).map { declaration + ("trustedConnectionIds" to it) } +
+            listOf("", "-leading", "a".repeat(129), "operator\n").map { declaration + ("authorityProfileId" to it) } +
+            listOf("", " ", "http://authority.example/account/", "https:/account/", "https://user@host/account/",
+                "https://authority.example/account", "https://authority.example/account/?x=1", "https://authority.example/account/#x",
+                "https://authority.example/\\account/", "https://authority.example/\u0001/",
+                "https://authority.example/" + "a".repeat(65536) + "/").map { declaration + ("authorityBaseUri" to it) }
+        // When each malformed declaration or closed selection is decoded once.
+        for (value in badDeclarations) failure { SubmissionConnectionPolicy.selection(current + ("participantAuthentication" to value)) }
+        for (value in listOf(current - "participantAuthentication", current - "referenceAccessBindings",
+                current + ("extra" to true), current + ("version" to 4), current + ("version" to 3.0),
+                current + ("version" to 2), current + ("participantAuthentication" to null))) {
+            failure { SubmissionConnectionPolicy.selection(value) }
+        }
+        // Then rejection leaves the input intact; inclusive count and structural strings retain exact spelling.
+        assertEquals(declaration, current["participantAuthentication"])
+        val inclusive = participant((0..127).map { "server_$it" }, profile = "A" + "a".repeat(127))
+        assertEquals(inclusive, SubmissionConnectionPolicy.participantDeclaration(inclusive))
+        val structurallyValid = participant(base = "https://AUTHORITY.example/account/")
+        assertEquals(structurallyValid, SubmissionConnectionPolicy.participantDeclaration(structurallyValid))
+    }
+
+    @Test fun participantMembershipRequiresAuthenticatedExactTargetsAndTrustedSelection() {
+        // Given safe registered Drive, authenticated, anonymous and untrusted targets.
+        val definitions = listOf(drive(), http(), http(id = "anonymous", auth = false), http(id = "other"))
+        val ordinary = mapOf("version" to 2, "storageConnectionId" to "drive", "transportConnectionId" to "server",
+            "referenceAccessBindings" to mapOf("other" to listOf("drive")))
+        // When setter attempts missing, wrong-kind, anonymous and selected-outside declarations.
+        for (id in listOf("absent", "drive")) {
+            failure("connectionMissing") { SubmissionConnectionPolicy.setParticipantAuthentication(definitions, ordinary, participant(listOf(id))) }
+        }
+        for (id in listOf("anonymous", "other")) {
+            failure { SubmissionConnectionPolicy.setParticipantAuthentication(definitions, ordinary, participant(listOf(id))) }
+        }
+        val accepted = SubmissionConnectionPolicy.setParticipantAuthentication(definitions, ordinary, participant())
+        // When selection attempts a registered same-origin but undeclared target.
+        failure { SubmissionConnectionPolicy.withSelection(definitions, accepted, "drive", "other") }
+        // Then no failed operation changes existing state or derives trust from references/origin.
+        assertEquals(participant(), SubmissionConnectionPolicy.participantAuthentication(accepted))
+        assertEquals("server", accepted["transportConnectionId"])
+        assertEquals(mapOf("other" to listOf("drive")), SubmissionConnectionPolicy.referenceAccessBindings(accepted))
+        assertEquals(2, ordinary["version"])
+        assertEquals(4, definitions.size)
+        // When transport selection is explicitly cleared through the actual policy.
+        val unselected = SubmissionConnectionPolicy.withSelection(definitions, accepted, null, null)
+        // Then a declaration remains valid independently of selection.
+        assertNull(unselected["transportConnectionId"])
+        assertEquals(participant(), SubmissionConnectionPolicy.participantAuthentication(unselected))
     }
 
     @Test fun initialSchemaAcceptsEmptyAndAndroidMetadataOnly() {

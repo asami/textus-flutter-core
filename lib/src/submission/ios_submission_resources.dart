@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../authentication/user_account_http_authentication_backend.dart';
 import '../repository/file_capture_store.dart';
 import '../repository/local_capture_store.dart';
 import 'drive_submission_storage_adapter.dart';
@@ -15,6 +16,7 @@ import 'sqlite_submission_queue_store.dart';
 import 'submission_adapters.dart';
 import 'submission_background_resources.dart';
 import 'submission_connections.dart';
+import 'submission_participant_runtime.dart';
 import 'submission_queue_store.dart';
 import 'submission_reference_access.dart';
 import 'submission_run_lifetime.dart';
@@ -29,16 +31,22 @@ Future<SubmissionBackgroundResources> openDefaultIosSubmissionResources({
   required SubmissionRunLifetime lifetime,
   SubmissionWakeScheduler? scheduler,
   SubmissionCredentialProvider? credentials,
+  UserAccountSubmissionScope? authenticationScope,
+  bool requiresAuthentication = false,
 }) => _openIosSubmissionResources(
   lifetime: lifetime,
   scheduler: scheduler,
   credentials: credentials,
+  authenticationScope: authenticationScope,
+  requiresAuthentication: requiresAuthentication,
 );
 
 Future<SubmissionBackgroundResources> _openIosSubmissionResources({
   required SubmissionRunLifetime lifetime,
   SubmissionWakeScheduler? scheduler,
   SubmissionCredentialProvider? credentials,
+  UserAccountSubmissionScope? authenticationScope,
+  bool requiresAuthentication = false,
   SubmissionQueueStore? borrowedQueue,
   LocalCaptureStore? borrowedMaterials,
 }) async {
@@ -57,6 +65,15 @@ Future<SubmissionBackgroundResources> _openIosSubmissionResources({
     owner.current();
     final snapshot = await owner.configuration!.snapshot();
     owner.current();
+    final authentication = owner.participant =
+        await SubmissionParticipantRuntime.open(
+          snapshot: snapshot,
+          legacyCredentials: owner.configuration!,
+          lifetime: lifetime,
+          authenticationScope: authenticationScope,
+          requiresAuthentication: requiresAuthentication,
+        );
+    owner.current();
     owner.queue = borrowedQueue ?? await openDefaultSubmissionQueueStore();
     owner.current();
     final materials = borrowedMaterials ?? await openDefaultCaptureStore();
@@ -71,6 +88,8 @@ Future<SubmissionBackgroundResources> _openIosSubmissionResources({
                 lifetime: lifetime,
                 scheduler: scheduler,
                 credentials: credentials,
+                authenticationScope: authenticationScope,
+                requiresAuthentication: requiresAuthentication,
                 borrowedQueue: queue,
                 borrowedMaterials: materials,
               ),
@@ -88,13 +107,16 @@ Future<SubmissionBackgroundResources> _openIosSubmissionResources({
       }),
     );
     owner.current();
+    bool runCurrent() => lifetime.isCurrent && authentication.isCurrent;
     final transports = {
-      for (final connection in snapshot.httpConnections)
+      for (final connection in snapshot.httpConnections.where(
+        authentication.permits,
+      ))
         connection.id: HttpSubmissionTransport(
           connection: connection,
           client: client,
-          credentials: configuration,
-          isRunCurrent: () => lifetime.isCurrent,
+          credentials: authentication.credentials,
+          isRunCurrent: runCurrent,
           cancellation: lifetime.cancelled,
         ),
     };
@@ -109,6 +131,8 @@ Future<SubmissionBackgroundResources> _openIosSubmissionResources({
       store: queue as RegisteredMaterialHandoffStore,
       transports: transports,
       scheduler: wake,
+      requiresAuthentication: authentication.requiresAuthentication,
+      authenticationContext: authentication.authenticationContext,
     );
     owner.current();
     final service = owner.service = SubmissionService(
@@ -116,20 +140,24 @@ Future<SubmissionBackgroundResources> _openIosSubmissionResources({
       materials: materials,
       scheduler: wake,
       registeredMaterialHandoffs: handoffs,
+      requiresAuthentication: authentication.requiresAuthentication,
+      authenticationContext: authentication.authenticationContext,
       referenceAccessPolicy: ConfiguredSubmissionReferenceAccessPolicy(
         configuration: configuration,
       ),
       tklClients: {
         for (final connection in snapshot.httpConnections.where(
           (connection) =>
+              authentication.permits(connection) &&
               connection.requiresBearerToken &&
               connection.endpoint.path.endsWith('/'),
         ))
           connection.id: TklMaterialDeliveryHttpClient(
             connection: connection,
             client: client,
-            credentials: configuration,
-            isRunCurrent: () => lifetime.isCurrent,
+            credentials: authentication.credentials,
+            authenticationBinding: authentication.binding,
+            isRunCurrent: runCurrent,
             cancellation: lifetime.cancelled,
           ),
       },
@@ -139,7 +167,7 @@ Future<SubmissionBackgroundResources> _openIosSubmissionResources({
             connection: connection,
             client: client,
             credentials: configuration,
-            isRunCurrent: () => lifetime.isCurrent,
+            isRunCurrent: runCurrent,
             cancellation: lifetime.cancelled,
           ),
       },
@@ -174,6 +202,7 @@ final class _IosSubmissionResourceOwner {
   SubmissionQueueStore? queue;
   SubmissionService? service;
   RegisteredMaterialHandoffService? handoffs;
+  SubmissionParticipantRuntime? participant;
   http.Client? client;
   IosSubmissionForegroundScheduler? scheduler;
   bool cleanupFailed = false;
@@ -226,6 +255,7 @@ final class _IosSubmissionResourceOwner {
     await _attempt(closeClient);
     if (handoffs != null) await _attempt(handoffs!.close);
     if (service != null) await _attempt(service!.close);
+    if (participant != null) await _attempt(participant!.close);
     await _schedulerDrain;
     if (ownsQueue && queue != null) await _attempt(queue!.close);
     if (configuration != null) await _attempt(configuration!.close);
