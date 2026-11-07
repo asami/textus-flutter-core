@@ -1,8 +1,13 @@
 # User Account authentication client integration
 
-Status: PLANNED; execution not started
+Status: IN_PROGRESS; implementation qualification does not close acceptance
 Decision date: 2026-10-31
 Consumers: App Phase 6.10 ESA610-08, then Phase 7 ESA7-01; Flutter Application Framework
+
+2026-11-07: App's user selected advance Phase 7 development while remaining
+Phase 6.10 acceptance is held. TFC-UA03's [browser adapter](../spec/browser-user-account-authentication.md)
+reuses the native/common backend semantics. Host and synthetic browser checks
+remain separate from actual participant/Material/deployed acceptance below.
 
 Implement the [common client contract](../spec/user-account-authentication-client.md).
 This is a bounded producer workstream driven by Studio Server Phase 5 and the

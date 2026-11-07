@@ -1,7 +1,7 @@
 # Shared image input and media capability contract
 
 Decision date: 2026-10-31
-Status: accepted direction; implementation and platform acceptance pending
+Status: shared baseline implemented 2026-11-07; actual platform acceptance pending
 
 ## Common operations and capability state
 
@@ -72,6 +72,18 @@ preview, cancel, delivery/retry and TKL registration. Specific platform adapters
 are qualified separately; unavailable paste does not disable file import.
 
 ## Acceptance
+
+The implemented baseline is `MediaInputService` plus browser file and native
+image-picker adapters. It validates actual JPEG/PNG/WebP headers/dimensions,
+limits each selected image to 16MiB and 40 million pixels, and returns the
+existing original-content value before App association. Browser camera/audio
+adapters remain explicitly unsupported configuration with unknown hardware;
+existing native audio/capture consumers are preserved. `BrowserCaptureStore`
+and the browser queue adapter retain originals/opaque documents/existing queue
+records in IndexedDB. SQLite and browser persistence share the accepted queue
+transition engine, not two domain algorithms. Foreground delivery requires an
+explicit wake and resumed application; there is no browser background guarantee.
+Controlled qualification is distinct from the actual acceptance below.
 
 - Web image selection/preview/submission/reopen works without camera/mic access;
   cancellation leaves the current work intact.

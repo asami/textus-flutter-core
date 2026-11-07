@@ -7,9 +7,19 @@ import 'package:http/http.dart' as http;
 
 import '../submission/submission_authentication.dart';
 import '../submission/submission_connections.dart';
+import '../submission/submission_run_lifetime.dart';
+import '../submission/tkl_material_delivery_http_client.dart';
+import '../submission/http_submission_transport.dart';
 import 'native_authentication_credential_store.dart';
 import 'user_account_authentication.dart';
 import 'user_account_http_wire.dart';
+import 'browser_authentication_http_stub.dart'
+    if (dart.library.js_interop) 'browser_authentication_http_web.dart'
+    as browser;
+
+part 'authentication_credential_slot.dart';
+part 'user_account_http_session.dart';
+part 'user_account_material_delivery_access.dart';
 
 /// An explicit authority binding. Construction never contacts that authority.
 final class UserAccountHttpProfile {
@@ -145,8 +155,7 @@ final class UserAccountHttpProfile {
   String toString() => 'UserAccountHttpProfile';
 }
 
-/// Native server-backed authentication. One instance serves one client lifetime.
-/// Credentials remain in private memory and the existing protected native store.
+/// Server-backed authentication. One instance serves one client lifetime.
 final class UserAccountHttpAuthenticationBackend
     implements UserAccountRestorableAuthenticationBackend {
   UserAccountHttpAuthenticationBackend({
@@ -154,13 +163,31 @@ final class UserAccountHttpAuthenticationBackend
     http.Client? client,
     NativeAuthenticationCredentialStore? credentialStore,
   }) : _client = client ?? http.Client(),
-       _store = credentialStore ?? NativeAuthenticationCredentialStore(),
+       _store = _NativeCredentialSlot(
+         credentialStore ?? NativeAuthenticationCredentialStore(),
+       ),
        _ownsClient = client == null,
        _ownsStore = credentialStore == null;
 
+  /// Browser authentication uses this instance's volatile credential slot.
+  /// Reloading/closing the application requires login again; nothing is written
+  /// to browser storage. The default transport omits cookies and redirects and
+  /// admits only the actual page origin. [client] is a borrowed transport port.
+  UserAccountHttpAuthenticationBackend.browser({
+    required this.profile,
+    http.Client? client,
+  }) : _client =
+           client ??
+           browser.createBrowserAuthenticationHttpClient(
+             profile.serviceBaseUri,
+           ),
+       _store = _MemoryCredentialSlot(),
+       _ownsClient = client == null,
+       _ownsStore = true;
+
   final UserAccountHttpProfile profile;
   final http.Client _client;
-  final NativeAuthenticationCredentialStore _store;
+  final _CredentialSlot _store;
   final bool _ownsClient;
   final bool _ownsStore;
   final Completer<void> _closedSignal = Completer<void>();
@@ -176,6 +203,52 @@ final class UserAccountHttpAuthenticationBackend
   _SessionCommit? _pending;
   int _authEpoch = 0;
   final Set<Future<void>> _submissionLookups = {};
+  final Set<UserAccountHttpSession> _httpSessions = {};
+
+  /// Borrows the accepted account for one explicit same-origin service root.
+  /// Tokens remain inside Core; refresh/logout retire all previously issued
+  /// sessions. Construction performs no network or credential-store IO.
+  UserAccountHttpSession createHttpSession({
+    required Uri serviceBaseUri,
+    http.Client? client,
+  }) {
+    final base = UserAccountHttpProfile._base(
+      serviceBaseUri,
+      profile.serviceBaseUri.scheme == 'http',
+    );
+    if (base.origin != profile.serviceBaseUri.origin) {
+      throw ArgumentError('Service and account authority must share an origin');
+    }
+    final active = _active;
+    if (!_submissionAvailable || active == null) {
+      throw StateError('Authenticated service is unavailable');
+    }
+    final owner = _SubmissionOwner(
+      active.revision,
+      active.record.writeId,
+      active.record.pair.userAccountId,
+      _authEpoch,
+    );
+    final session = UserAccountHttpSession._(
+      this,
+      owner,
+      SubmissionAuthenticationBinding(
+        authority: profile,
+        userAccountId: owner.userAccountId,
+      ),
+      base,
+      client ?? browser.createAuthenticatedServiceHttpClient(base),
+      client == null,
+    );
+    _httpSessions.add(session);
+    return session;
+  }
+
+  void _retireHttpSessions() {
+    for (final session in _httpSessions.toList()) {
+      session.close();
+    }
+  }
 
   /// Borrows this accepted account for explicitly declared credential recipients.
   /// Construction snapshots local intent without IO or calling [isRunCurrent].
@@ -244,7 +317,7 @@ final class UserAccountHttpAuthenticationBackend
         binding.userAccountId == owner.userAccountId;
   }
 
-  Future<String?> _submissionToken(UserAccountSubmissionScope scope) {
+  Future<String?> _credentialToken(_CredentialLease scope) {
     final result = Completer<String?>();
     final done = Completer<void>();
     final drain = done.future;
@@ -309,6 +382,7 @@ final class UserAccountHttpAuthenticationBackend
     try {
       _guard(operation);
       _authEpoch++;
+      _retireHttpSessions();
       return await body();
     } on _SafeFailure catch (failure) {
       return UserAccountSignInRejected(failure.reason);
@@ -560,6 +634,7 @@ final class UserAccountHttpAuthenticationBackend
     required UserAccountAuthenticationOperation operation,
   }) async {
     _authEpoch++;
+    _retireHttpSessions();
     final active = _active;
     _active = null;
     _challenge = null;
@@ -781,6 +856,7 @@ final class UserAccountHttpAuthenticationBackend
     if (_closing case final closing?) return closing;
     _closed = true;
     _authEpoch++;
+    _retireHttpSessions();
     _active = null;
     _clearanceSelectionRecorded = false;
     _clearanceOwner = null;
@@ -837,7 +913,7 @@ final class UserAccountHttpAuthenticationBackend
 /// A token-free account/run fence borrowing one backend's accepted native owner.
 /// Recipient declarations are local configuration, not server realm permission.
 final class UserAccountSubmissionScope
-    implements AuthenticatedSubmissionCredentialProvider {
+    implements AuthenticatedSubmissionCredentialProvider, _CredentialLease {
   UserAccountSubmissionScope._(
     this._backend,
     this._owner,
@@ -852,6 +928,7 @@ final class UserAccountSubmissionScope
   }
 
   final UserAccountHttpAuthenticationBackend _backend;
+  @override
   final _SubmissionOwner _owner;
   final Map<String, HttpSubmissionConnection> _targets;
   final bool Function() _isRunCurrent;
@@ -860,6 +937,7 @@ final class UserAccountSubmissionScope
   SubmissionAuthenticationContext get context => _context;
   SubmissionAuthenticationBinding get binding => context.binding;
 
+  @override
   bool _isCurrent() {
     if (_retired || !_backend._ownsSubmission(_owner, binding)) {
       _retired = true;
@@ -894,7 +972,7 @@ final class UserAccountSubmissionScope
       return Future.value(null);
     }
     if (!_isCurrent()) return Future.value(null);
-    return _backend._submissionToken(this);
+    return _backend._credentialToken(this);
   }
 
   @override

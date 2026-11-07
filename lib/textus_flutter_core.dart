@@ -61,6 +61,9 @@ export 'src/display/display_session.dart';
 export 'src/repository/capture_repository.dart';
 export 'src/repository/local_capture_store.dart';
 export 'src/repository/file_capture_store.dart';
+export 'src/repository/browser_capture_store.dart';
+export 'src/capture/media_input.dart';
+export 'src/capture/platform_media_input.dart';
 
 // Source-authoritative local lexical retrieval and a durable derived index.
 export 'src/retrieval/material_retrieval.dart';
@@ -92,6 +95,7 @@ export 'src/submission/submission_reference_access.dart';
 export 'src/submission/android_submission_configuration.dart';
 export 'src/submission/ios_submission_configuration.dart';
 export 'src/submission/ios_submission_foreground_scheduler.dart';
+export 'src/submission/foreground_submission_scheduler.dart';
 export 'src/submission/ios_submission_resources.dart';
 export 'src/submission/submission_run_lifetime.dart';
 export 'src/submission/submission_background_resources.dart';
