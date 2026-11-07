@@ -1,5 +1,7 @@
 # Core Phase index
 
+[Optional Firebase providers](firebase-provider-plan.md) are planned for later delivery. Start with client diagnostics and connect push and attestation with their server counterparts.
+
 ## Planned media input/capability integration — 2026-10-31
 
 [Shared media capabilities](media-input-capabilities-plan.md) provide image

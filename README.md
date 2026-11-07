@@ -98,6 +98,9 @@ planned Phases.
 
 ## Package layout
 
+The [Firebase provider architecture](docs/design/firebase-provider-boundary.md)
+defines how future opt-in adapters fit individual client services.
+
 ```text
 lib/textus_flutter_core.dart  public API entry point
 lib/src/                      internal implementation, added with the first API
