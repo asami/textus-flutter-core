@@ -11,7 +11,7 @@ Firebase is an optional infrastructure provider for Textus client applications. 
 | Consuming application | Select providers for each platform and environment, supply platform registrations, and map a user action to a domain screen. Operators supply server credentials at deployment. |
 | CNCF and deployed server components | Verify request evidence at ingress, authorize Operations and resources, and dispatch user notifications through the existing UserNotificationProvider contract. |
 
-Core's [development plan](../phase/firebase-provider-plan.md) and the [CNCF architecture](https://github.com/asami/goldenport-cncf/blob/main/docs/design/firebase-provider-boundary.md) describe the client and server handoff.
+Core's [development plan](../phase/phase-4.md) and the [CNCF architecture](https://github.com/asami/goldenport-cncf/blob/main/docs/design/firebase-provider-boundary.md) describe the client and server handoff.
 
 ## Services and data ownership
 

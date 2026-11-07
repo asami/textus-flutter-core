@@ -1,6 +1,6 @@
 # Core Phase index
 
-[Optional Firebase providers](firebase-provider-plan.md) are planned for later delivery. Start with client diagnostics and connect push and attestation with their server counterparts.
+[Phase 4 — Optional Firebase client providers](phase-4.md) is planned for later delivery. Progress is recorded in the [Phase 4 checklist](phase-4-checklist.md).
 
 ## Planned media input/capability integration — 2026-10-31
 
