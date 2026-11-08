@@ -12,7 +12,7 @@ import 'pcm_wave_audio.dart';
 /// An injectable channel supports protocol specifications; channel mocks do not
 /// establish iOS microphone, model or hardware availability.
 final class IosAudioProvider
-    implements AudioRuntimeProvider, AudioTranscriptionProvider {
+    implements AudioRuntimeProvider, TransientAudioTranscriptionProvider {
   /// Creates an inert adapter with a unique logical native session.
   IosAudioProvider({MethodChannel? channel, bool? isIos})
     : _channel =
@@ -185,12 +185,24 @@ final class IosAudioProvider
   }
 
   @override
-  Future<AudioProviderTranscript> transcribe(AudioTranscriptionInput input) {
-    final bytes = PcmWaveAudio.parse(input.bytes).bytes;
+  Future<AudioProviderTranscript> transcribe(AudioTranscriptionInput input) =>
+      transcribeCaptured(input.bytes, locale: input.locale);
+
+  @override
+  Future<AudioProviderTranscript> transcribeCaptured(
+    Uint8List input, {
+    String locale = 'ja-JP',
+  }) {
+    AudioProviderAvailability(
+      providerId: id,
+      locale: locale,
+      state: AudioProviderState.unavailable,
+    );
+    final bytes = PcmWaveAudio.parse(input).bytes;
     return _normal(AudioCaptureState.transcribing, () async {
       _requireIos();
       final map = _map(
-        await _call('transcribe', {'bytes': bytes, 'locale': input.locale}),
+        await _call('transcribe', {'bytes': bytes, 'locale': locale}),
         {'text', 'extensions'},
       );
       if (map['text'] is! String ||
@@ -200,7 +212,7 @@ final class IosAudioProvider
       }
       final extensions = map['extensions'] as Map;
       if (extensions['providerId'] != id ||
-          extensions['locale'] != input.locale ||
+          extensions['locale'] != locale ||
           extensions['onDevice'] != true) {
         throw const FormatException('Invalid on-device transcript provenance');
       }

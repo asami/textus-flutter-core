@@ -17,6 +17,8 @@ export 'src/audio/audio_transcript_codec.dart';
 export 'src/audio/android_audio_provider.dart';
 export 'src/audio/ios_audio_provider.dart';
 export 'src/audio/pcm_wave_audio.dart';
+export 'src/audio/voice_text_input.dart';
+export 'src/audio/voice_text_cleanup.dart';
 
 // Domain-independent capture values and contracts.
 export 'src/capture/capture_identifiers.dart';

@@ -4,8 +4,11 @@ import kotlinx.coroutines.flow.collect
 
 /** Validated immutable request; parsing cannot initialize a native model. */
 internal sealed class GeminiNanoRequest(val deadlineMillis: Long) {
+    open val draftRequestId: String? get() = null
     object Probe : GeminiNanoRequest(20_000)
+    object ProbeVoiceCleanup : GeminiNanoRequest(20_000)
     object Prepare : GeminiNanoRequest(600_000)
+    object PrepareVoiceCleanup : GeminiNanoRequest(600_000)
     class Recognize(val bytes: ByteArray, val prompt: String, val expectedModelName: String?) :
         GeminiNanoRequest(90_000)
     class Draft(
@@ -16,17 +19,34 @@ internal sealed class GeminiNanoRequest(val deadlineMillis: Long) {
         val prompt: String,
         val expectedModelName: String?,
     ) : GeminiNanoRequest(90_000) {
+        override val draftRequestId: String get() = requestId
         private val originalBytes = bytes?.copyOf()
         val bytes: ByteArray? get() = originalBytes?.copyOf()
+    }
+    class VoiceCleanup(
+        val requestId: String,
+        val instructions: String,
+        val source: String,
+        val expectedModelName: String?,
+    ) : GeminiNanoRequest(90_000) {
+        override val draftRequestId: String get() = requestId
     }
 
     companion object {
         fun parse(method: String, arguments: Any?): GeminiNanoRequest {
-            if (method == "probe" || method == "prepare") {
+            if (method in setOf("probe", "prepare", "probeVoiceCleanup", "prepareVoiceCleanup")) {
                 if (arguments != null && (arguments !is Map<*, *> || arguments.isNotEmpty())) {
                     throw GeminiNanoFailure("invalidArguments", "$method requires null or an empty map")
                 }
-                return if (method == "probe") Probe else Prepare
+                return when (method) {
+                    "probe" -> Probe
+                    "prepare" -> Prepare
+                    "probeVoiceCleanup" -> ProbeVoiceCleanup
+                    else -> PrepareVoiceCleanup
+                }
+            }
+            if (method == "generateDraft" && arguments is Map<*, *> && arguments["operation"] == "voiceTextCleanupV2") {
+                return parseVoiceCleanup(arguments)
             }
             if (method == "generateDraft") return parseDraft(arguments)
             if (method != "recognize" || arguments !is Map<*, *> ||
@@ -50,6 +70,22 @@ internal sealed class GeminiNanoRequest(val deadlineMillis: Long) {
             return draftIdentity(arguments["requestId"])
         }
 
+        private fun parseVoiceCleanup(arguments: Map<*, *>): VoiceCleanup {
+            if (arguments.keys != setOf("requestId", "operation", "language", "instructions", "source", "expectedModelName")) {
+                throw GeminiNanoFailure("invalidArguments", "voiceTextCleanupV2 requires separate instructions and source")
+            }
+            val id = draftIdentity(arguments["requestId"])
+            val instructions = arguments["instructions"]
+            val source = arguments["source"]
+            val modelName = arguments["expectedModelName"]
+            if (arguments["language"] != "ja" || instructions !is String || instructions.isBlank() ||
+                source !is String || source.isBlank() ||
+                (modelName != null && (modelName !is String || modelName.isBlank()))) {
+                throw GeminiNanoFailure("invalidArguments", "Invalid voice cleanup language, instructions, source or model")
+            }
+            return VoiceCleanup(id, instructions, source, modelName)
+        }
+
         private fun parseDraft(arguments: Any?): Draft {
             if (arguments !is Map<*, *> || arguments.keys != setOf(
                     "requestId", "operation", "language", "bytes", "prompt", "expectedModelName",
@@ -62,7 +98,7 @@ internal sealed class GeminiNanoRequest(val deadlineMillis: Long) {
             val bytes = arguments["bytes"]
             val prompt = arguments["prompt"]
             val modelName = arguments["expectedModelName"]
-            val textOperation = operation == "textSummary" || operation == "textProofreading" || operation == "textReadability"
+            val textOperation = operation == "textSummary" || operation == "textProofreading" || operation == "textReadability" || operation == "voiceTextCleanup"
             if ((operation != "imageDescription" && !textOperation) || language != "ja" ||
                 (operation == "imageDescription" && (bytes !is ByteArray || bytes.isEmpty())) ||
                 (textOperation && bytes != null) ||
@@ -99,7 +135,16 @@ internal class GeminiNanoRequestRunner(private val factory: GeminiNanoModelFacto
                     "modelName" to if (status == GeminiNanoReadiness.AVAILABLE) actualModelName(model) else null,
                     "reason" to status.reason,
                 )
-                GeminiNanoRequest.Prepare -> {
+                GeminiNanoRequest.ProbeVoiceCleanup -> {
+                    val supported = status == GeminiNanoReadiness.AVAILABLE && model.systemPromptAvailable()
+                    mapOf(
+                        "state" to if (status == GeminiNanoReadiness.AVAILABLE && !supported) "unavailable" else status.wireState,
+                        "modelName" to if (supported) actualModelName(model) else null,
+                        "reason" to if (status == GeminiNanoReadiness.AVAILABLE && !supported)
+                            "The selected AICore model does not support system instructions" else status.reason,
+                    )
+                }
+                GeminiNanoRequest.Prepare, GeminiNanoRequest.PrepareVoiceCleanup -> {
                     when (status) {
                         GeminiNanoReadiness.AVAILABLE -> Unit
                         GeminiNanoReadiness.DOWNLOADABLE -> {
@@ -116,6 +161,11 @@ internal class GeminiNanoRequestRunner(private val factory: GeminiNanoModelFacto
                             }
                         }
                         else -> throw GeminiNanoFailure("providerUnavailable", status.reason!!)
+                    }
+                    if (request == GeminiNanoRequest.PrepareVoiceCleanup) {
+                        if (model.status() != GeminiNanoReadiness.AVAILABLE || !model.systemPromptAvailable()) {
+                            throw GeminiNanoFailure("providerUnavailable", "Prepared model cannot perform instruction-separated voice cleanup")
+                        }
                     }
                     null
                 }
@@ -139,7 +189,21 @@ internal class GeminiNanoRequestRunner(private val factory: GeminiNanoModelFacto
                     if (request.expectedModelName != null && request.expectedModelName != modelName) {
                         throw GeminiNanoFailure("modelChanged", "AICore model changed from ${request.expectedModelName} to $modelName")
                     }
-                    val text = model.generateDraft(request.bytes, request.prompt, cleanupFailures)
+                    val text = if (request.operation == "voiceTextCleanup") {
+                        model.generateVoiceCleanup(request.prompt, cleanupFailures)
+                    } else model.generateDraft(request.bytes, request.prompt, cleanupFailures)
+                    mapOf("requestId" to request.requestId, "text" to text, "modelName" to modelName)
+                }
+                is GeminiNanoRequest.VoiceCleanup -> {
+                    if (status != GeminiNanoReadiness.AVAILABLE || !model.systemPromptAvailable()) {
+                        throw GeminiNanoFailure("providerUnavailable", "Instruction-separated voice cleanup is unavailable")
+                    }
+                    val modelName = actualModelName(model)
+                    if (request.expectedModelName != null && request.expectedModelName != modelName) {
+                        throw GeminiNanoFailure("modelChanged", "AICore model changed from ${request.expectedModelName} to $modelName")
+                    }
+                    val text = model.generateVoiceCleanup(request.instructions, request.source, cleanupFailures)
+                    if (text.isBlank()) throw GeminiNanoFailure("emptyResponse", "AICore returned blank generated text")
                     mapOf("requestId" to request.requestId, "text" to text, "modelName" to modelName)
                 }
             }
@@ -151,12 +215,12 @@ internal class GeminiNanoRequestRunner(private val factory: GeminiNanoModelFacto
                 model.close()
             } catch (error: Throwable) {
                 cleanupFailures.add(nativeDescription(error))
-                if (primary == null && request !is GeminiNanoRequest.Recognize && request !is GeminiNanoRequest.Draft) {
+                if (primary == null && request !is GeminiNanoRequest.Recognize && request.draftRequestId == null) {
                     throw GeminiNanoFailure("cleanupFailed", nativeDescription(error), error)
                 }
             }
         }
-        return if (request is GeminiNanoRequest.Recognize || request is GeminiNanoRequest.Draft) {
+        return if (request is GeminiNanoRequest.Recognize || request.draftRequestId != null) {
             response!! + ("cleanupFailures" to cleanupFailures.toList())
         } else response
     }

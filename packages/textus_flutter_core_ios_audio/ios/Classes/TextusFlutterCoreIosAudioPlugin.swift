@@ -86,6 +86,7 @@ public final class TextusFlutterCoreIosAudioPlugin: NSObject, FlutterPlugin {
     }
 
     public static func register(with registrar: FlutterPluginRegistrar) {
+        IosVoiceTextCleanupPlugin.register(with: registrar)
         let channel = FlutterMethodChannel(
             name: "org.textus.flutter.core/ios_audio", binaryMessenger: registrar.messenger()
         )
