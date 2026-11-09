@@ -46,7 +46,7 @@ internal class GeminiNanoSession(
             }
             val entry = active
             val request = entry?.request
-            val matches = !detached && request is GeminiNanoRequest.Draft && request.requestId == requestId
+            val matches = !detached && request?.draftRequestId == requestId
             if (matches) cancelActive("canceled")
             // Acknowledgement records intent; finish still owns cleanup and release.
             callback(GeminiNanoOutcome.Success(matches))

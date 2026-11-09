@@ -106,6 +106,24 @@ void main() {
     });
     tearDown(() async { await directory.delete(recursive: true); });
 
+    test('pending video prevents a photo action from replacing or consuming shared lost data', () async {
+      // Given a durable video intent belonging to another caller element.
+      final raw = <String, Object?>{
+        'schemaVersion': 1, 'id': 'pending-video',
+        'target': {'ownerId': 'book-1', 'elementId': 'note-1'},
+        'label': '注釈の動画', 'requestedAt': DateTime.utc(2026, 11, 8).toIso8601String(),
+        'state': 'acquiring', 'original': null,
+      };
+      await store.saveDocument(VideoCaptureRecovery.collection, VideoCaptureRecovery.documentId, raw);
+      // When the older photo capture or lost-photo route tries to use the same SDK.
+      await expectLater(service.captureOriginal(), throwsStateError);
+      await expectLater(service.recoverOriginal(), throwsStateError);
+      // Then neither native operation runs and the original video intent is retained.
+      expect(camera.captures, 0);
+      expect(camera.recoveries, 0);
+      expect(await store.readDocument(VideoCaptureRecovery.collection, VideoCaptureRecovery.documentId), raw);
+    });
+
     group('durable per-operation context', () {
       for (final command in ['capture', 'recover', 'recognize', 'compare']) {
         test('OC3 $command persists exact context and saved-original ownership', () async {

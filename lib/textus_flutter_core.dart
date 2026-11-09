@@ -17,6 +17,8 @@ export 'src/audio/audio_transcript_codec.dart';
 export 'src/audio/android_audio_provider.dart';
 export 'src/audio/ios_audio_provider.dart';
 export 'src/audio/pcm_wave_audio.dart';
+export 'src/audio/voice_text_input.dart';
+export 'src/audio/voice_text_cleanup.dart';
 
 // Domain-independent capture values and contracts.
 export 'src/capture/capture_identifiers.dart';
@@ -63,6 +65,9 @@ export 'src/repository/local_capture_store.dart';
 export 'src/repository/file_capture_store.dart';
 export 'src/repository/browser_capture_store.dart';
 export 'src/capture/media_input.dart';
+export 'src/capture/video_input.dart';
+export 'src/capture/video_capture_recovery.dart';
+export 'src/capture/local_media_playback.dart';
 export 'src/capture/platform_media_input.dart';
 
 // Source-authoritative local lexical retrieval and a durable derived index.

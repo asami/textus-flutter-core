@@ -172,6 +172,16 @@ abstract interface class AudioTranscriptionProvider {
   Future<void> dispose();
 }
 
+/// Speech input from unsaved microphone bytes; creates no durable material.
+abstract interface class TransientAudioTranscriptionProvider
+    implements AudioTranscriptionProvider {
+  /// Validates and recognizes transient WAV without inventing provenance.
+  Future<AudioProviderTranscript> transcribeCaptured(
+    Uint8List bytes, {
+    String locale = 'ja-JP',
+  });
+}
+
 /// Defensive snapshot of saved original bytes, reference and exact locale.
 final class AudioTranscriptionInput {
   /// Rejects invalid locale, nonaudio provenance and inconsistent byte lengths.

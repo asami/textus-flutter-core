@@ -274,7 +274,7 @@ class GeminiNanoRequestRunnerTest {
 
     @Test
     fun shouldGeneratePlainImageAndTextDraftsWithExactIdentityAndNullableImageInput() = runTest {
-        for (operation in listOf("imageDescription", "textSummary", "textProofreading", "textReadability")) {
+        for (operation in listOf("imageDescription", "textSummary", "textProofreading", "textReadability", "voiceTextCleanup")) {
             for (expected in listOf<String?>(null, "actual-base-model")) {
                 // Given this operation's exact prompt, original image or true text-only input, and expected model.
                 val model = Model(draftText = " \n日本語の編集可能な下書き\n ")
@@ -342,7 +342,7 @@ class GeminiNanoRequestRunnerTest {
             "prompt" to null, "prompt" to 4, "prompt" to " ",
             "expectedModelName" to 4, "expectedModelName" to " ",
         )) invalid.add(valid + (key to value))
-        for (operation in listOf("textSummary", "textProofreading", "textReadability")) {
+        for (operation in listOf("textSummary", "textProofreading", "textReadability", "voiceTextCleanup")) {
             for (bytes in listOf<Any?>(byteArrayOf(1), byteArrayOf(), "pseudoimage", listOf(1), 1)) {
                 invalid.add(draftArguments(operation = operation, bytes = null) + ("bytes" to bytes))
             }
@@ -548,6 +548,8 @@ class GeminiNanoRequestRunnerTest {
             generationFailure?.let { throw it }
             return draftText
         }
+        override suspend fun generateVoiceCleanup(prompt: String, cleanupFailures: MutableList<String>): String =
+            generateDraft(null, prompt, cleanupFailures)
         override fun close() { closes++; closeFailure?.let { throw it } }
     }
 }
