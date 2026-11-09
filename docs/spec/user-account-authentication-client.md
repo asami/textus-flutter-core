@@ -12,14 +12,17 @@ resolves UserAccount and issues/rotates/revokes AccessSession/RefreshSession.
 CNCF constructs SecurityContext and enforces operation/entity authorization.
 Core neither verifies passwords nor issues a parallel application session.
 
-Producer references: [CML](../../../textus-user-account/src/main/cozy/user-account.cml)
+Producer references: [CML](https://github.com/asami/textus-user-account/blob/main/src/main/cozy/user-account.cml)
 declares login, logout and refreshAccessToken; the
-[integration design](../../../textus-user-account/docs/design/external-federation-security-integration.md)
+[integration design](https://github.com/asami/textus-user-account/blob/main/docs/design/external-federation-security-integration.md)
 defines producer/CNCF boundaries. The native adapter uses the adopted
 [root HTTP shapes](user-account-http-wire-v1.md) and an explicit selected
 [authority profile](user-account-http-authentication-backend.md). A runnable
 participant deployment, browser transport and physical consumer qualification
 remain separate acceptance requirements.
+Concrete deployed selectors, input/result types, challenge responses, endpoints
+and native/browser transport bindings still require deployment-specific inventory;
+these producer references alone are not deployed proof.
 
 Core supplies a reusable authentication client and safe observable state:
 signed out, sign-in in progress, authenticated account, and action-required or
@@ -239,3 +242,43 @@ session logout and account-safe authenticated queue ownership. It must check
 returned late-write revision on cancellation, and drain retired work before
 publishing. Storage `close` preserves persistent records and may drain an
 already-issued write; it must never serve as logout or cancellation rollback.
+
+## Untrusted-client producer obligations — 2026-11-02
+
+Support the shared [UC-01..04 acceptance profile](https://github.com/asami/goldenport-cncf/blob/main/docs/spec/untrusted-client-material-acceptance.md).
+Core owns the reusable client portion; server authorization/admission remains
+in CNCF and TKL.
+
+- UC-01: no server-wide secret/service-account key in client code, resources or
+  generated configuration. Keep user credentials in the selected platform
+  facility and redact tokens/transfer URLs from ordinary diagnostics, queue and
+  presentation. Public OAuth client IDs and endpoint addresses are permitted.
+- UC-02/04: retain the authenticated account when composing requests; caller
+  owner/role fields cannot establish authority. Surface server denial without
+  fallback to a privileged identity, changing target owner or claiming success.
+  Preserve the existing account-safe queued-work behavior.
+- UC-03: report actual transfer results through the existing TKL contract and
+  consume authoritative registration/verification state. Uploaded bytes alone
+  cannot create a registered MaterialRef or Studio ACK in client state. Preserve
+  pending/failure/reconciliation and do not synthesize server proof.
+
+Application Framework presents the shared state; App supplies domain/UI work.
+Acceptance links packaged artifact inspection in the consumer to Core's
+credential/redaction tests and public-server denial/admission scenarios.
+No custom anti-tamper client, duplicated authorization engine, or new lease
+condition is needed.
+
+SDK-owned media processing, telemetry and external destinations additionally
+follow the [MS-01/02 contract](media-sdk-and-egress-acceptance.md). Authentication
+transport inspection alone does not qualify native SDK networking or cloud
+speech/OCR services; use the shared media adapters and actual consumer evidence.
+
+## Small-business defaults — 2026-11-02
+
+Under the [Textus baseline](https://github.com/asami/goldenport-cncf/blob/main/docs/spec/small-business-security-baseline-and-options.md), authentication/custody,
+account-safe transport and UC/MS behavior are standard shared facilities, not
+consumer opt-ins or app-specific security settings. Core exposes meaningful
+policy results/prerequisites for Framework presentation; servers retain authority.
+Stronger login methods consume actual User Account/IdP capability. A setting
+does not invent a hardware authenticator, HSM or recovery service; unavailable
+strengthening must not silently degrade to a weaker promised mode.

@@ -37,6 +37,92 @@ Studio owns server composition and user-account owns identity/session issuance.
 New Fold editing/media-import implementation follows that basic route. These
 targets reuse existing evidence; report delays without adding review gates or
 claiming acceptance from the calendar. See the
-[milestone schedule](../../../../Project2026/nict-editing-studio/docs/milestone/2026-11-10-nict-demo.md#intermediate-delivery-targets-jst).
+[milestone schedule](https://github.com/KnowledgeHubProject/nict-editing-studio/blob/codex/ess3-server-editing/docs/milestone/2026-11-10-nict-demo.md#intermediate-delivery-targets-jst).
 Run proportionate boundary/consumer specifications and integrated review; record
 actual platform proof separately. Normal owner validation/release rules apply.
+
+## UC-01..04 acceptance allocation — 2026-11-02
+
+The [client security obligations](../spec/user-account-authentication-client.md#untrusted-client-producer-obligations--2026-11-02)
+are part of TFC-UA01..03 and their connected acceptance.
+
+- [ ] TFC-UA02 / UC-01: native credential handling and redaction pass; App 6.10
+  inspects its actual distributables for embedded server secrets.
+- [ ] TFC-UA02 / UC-02..04: existing delivery/auth clients preserve account scope,
+  surface denial and independent TKL verification without false registration/
+  ACK; connect with Studio/TKL's two-user and forged-completion tests.
+- [ ] TFC-UA03: equivalent browser credential/transport/presentation behavior,
+  linked to App 7 bundle inspection and actual Web ingress acceptance.
+
+Reuse the closed TKL delivery workstream and its evidence; do not reopen it or
+build another transfer runtime. Record gaps against this active integration
+and the owning CNCF/TKL requirement, with one integrated review.
+
+## SDK and media destination acceptance — 2026-11-02
+
+Deliver the [MS-01/02 common contract](../spec/media-sdk-and-egress-acceptance.md)
+as the media/transport portion of this connected workstream. Preserve closed
+capture/delivery phases and reuse their implementations and evidence.
+
+- [ ] TFC-UA01 / MS-01: inventory relevant resolved SDKs/plugins and transitive
+  dependencies, media/credential access and automatic collection; map local/
+  remote processing and recipients with App ESA610-01. Use existing lockfiles
+  and reports rather than a new dependency registry.
+- [ ] TFC-UA02 / MS-02: common native adapters/configuration and SDK diagnostics
+  satisfy declared media egress, no silent cloud fallback and no media/text/
+  secret logging. Exercise authorized positive transfer and startup, preview,
+  denied permission, cancellation, offline/retry and recipient-change cases.
+  Link separate Android/iPhone observations with App Phase 6.10.
+- [ ] TFC-UA03 / MS-01/02: qualify the Web dependencies/adapters and hand the
+  observed destination/processing behavior to Framework/App Phase 7; reuse
+  native evidence only for shared behavior and identify platform-specific gaps.
+
+Core owns reusable configuration/transport behavior; App owns final packaged
+composition and platform acceptance. Native third-party SDK traffic is assessed
+explicitly, not assumed intercepted by Core's HTTP client. Use synthetic media,
+sanitized results and existing integrated review; record unknowns as open.
+
+## Simple standard setup allocation — 2026-11-02
+
+- [ ] TFC-UA01/02 / SB-01/03: qualify supported native defaults with only
+  necessary account/provider onboarding; consumers need no custom credential
+  storage, guard setup or technical security parameters.
+- [ ] TFC-UA03 / SB-02: shared Web/native policy meaning is preserved for
+  supported strengthening; expose unsupported capability/equipment prerequisites
+  without claiming protection or silently falling back.
+
+Follow the [baseline contract](https://github.com/asami/goldenport-cncf/blob/main/docs/spec/small-business-security-baseline-and-options.md). Reuse UC/MS
+consumer evidence. Optional strong-authentication providers and physical
+controls are future selectable delivery, not universal current-phase gates.
+
+## Mode-aware common client allocation — 2026-11-02
+
+Implement [shared mode consumption](../spec/user-account-authentication-client.md#shared-runtime-mode-consumption--2026-11-02)
+as part of TFC-UA01..03, preserving all closed Phase histories.
+
+- [ ] TFC-UA01 / MODE-01..03: agree the actual CNCF/User Account mode and fixture
+  contract; separate developer convenience from real participant authentication.
+- [ ] TFC-UA02 / MODE-04/05: native dev setup is simple; actual demo accounts,
+  credentials, storage and queues stay isolated. Account/environment changes
+  cannot reassign/replay pending Material. No production secrets in fixtures.
+- [ ] TFC-UA03: same semantics through the browser adapter with ESA7-01/05;
+  reuse native/common evidence and verify browser-specific transport behavior.
+
+Deliver the basic phone/Web route first. This is not a requirement for Google
+OIDC, passkeys or a new environment-settings UI before November 10.
+
+## External providers and provider-managed Passkey — 2026-11-05
+
+Status: PLANNED; separate extension, not a November 10 demo gate.
+
+Implement common external-login state and browser launch/return, native completion exchange, Web session transport, protected credential storage and logout; keep provider verification and secrets server-side.
+
+Follow the [shared delivery decision](../notes/external-provider-login-and-passkey.md).
+Google is first; Microsoft/GitHub/LINE follow without blocking its acceptance.
+Existing active work, accepted phases and direct Textus WebAuthn plans remain intact.
+
+- [ ] TFC-FED-01: Agree the begin/callback/completion/session and provider-capability contracts with the other two owners; preserve existing identity/authorization boundaries.
+- [ ] TFC-FED-02: Deliver the owner responsibility above on the connected Google Web/native route, then qualify other enabled providers separately.
+- [ ] TFC-FED-03: Accept provider-managed Passkey on supported real account/device/browser combinations; distinguish actual ceremony from reused sessions and unverified assurance. No Textus Passkey enrollment is required.
+- [ ] TFC-FED-04: Verify Japanese/default recommendations and Other access to all remaining enabled providers with Framework/Core; locale does not restrict authentication.
+- [ ] TFC-FED-05: Record connected success, cancellation, rejection/replay, account isolation, logout and redaction evidence; normal owner tests/review/release apply.

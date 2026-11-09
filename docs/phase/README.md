@@ -1,5 +1,7 @@
 # Core Phase index
 
+[Phase 4 — Optional Firebase client providers](phase-4.md) is planned for later delivery. Progress is recorded in the [Phase 4 checklist](phase-4-checklist.md).
+
 ## Planned media input/capability integration — 2026-10-31
 
 [Shared media capabilities](media-input-capabilities-plan.md) provide image
