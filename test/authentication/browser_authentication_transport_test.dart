@@ -1,7 +1,9 @@
 @TestOn('browser')
 library;
 
+import 'dart:async';
 import 'dart:js_interop';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -14,6 +16,227 @@ external JSFunction get _fetch;
 external set _fetch(JSFunction value);
 
 void main() {
+  group('browser response lifecycle', () {
+    late Uri base;
+    late http.Client client;
+    late web.Response fetchResponse;
+    late web.AbortSignal signal;
+    void Function()? onAbort;
+
+    setUp(() {
+      final original = _fetch;
+      addTearDown(() => _fetch = original);
+      base = Uri.base.replace(
+        path: '/rest/v1/user-account/user/',
+        query: '',
+        fragment: '',
+      );
+      onAbort = null;
+      _fetch = ((JSAny url, web.RequestInit options) {
+        signal = options.signal!;
+        if (onAbort != null) {
+          signal.addEventListener(
+            'abort',
+            ((web.Event event) => onAbort!()).toJS,
+          );
+        }
+        return Future<web.Response>.value(fetchResponse).toJS;
+      }).toJS;
+      client = createBrowserAuthenticationHttpClient(base);
+      addTearDown(client.close);
+    });
+
+    test(
+      'should preserve the response and leave Fetch un-aborted after EOF',
+      () async {
+        // Given a real browser response containing a complete JSON body.
+        const body = '{"synthetic":true}';
+        fetchResponse = web.Response(
+          body.toJS,
+          web.ResponseInit(
+            status: 200,
+            headers:
+                {'content-type': 'application/json'}.jsify()!
+                    as web.HeadersInit,
+          ),
+        );
+
+        // When the complete response body reaches normal EOF.
+        final response = await client.get(base.resolve('login'));
+
+        // Then body, status and headers survive without aborting Fetch.
+        expect(response.body, body);
+        expect(response.statusCode, 200);
+        expect(response.headers['content-type'], 'application/json');
+        expect(signal.aborted, isFalse);
+
+        // When the client closes after completion.
+        client.close();
+
+        // Then the completed request has already retired from pending work.
+        expect(signal.aborted, isFalse);
+      },
+    );
+
+    test(
+      'should ignore an abort trigger completed after response EOF',
+      () async {
+        // Given an abortable request whose real browser response can complete.
+        final abortTrigger = Completer<void>();
+        fetchResponse = web.Response('completed'.toJS);
+        final request = http.AbortableRequest(
+          'GET',
+          base.resolve('login'),
+          abortTrigger: abortTrigger.future,
+        );
+        final response = await http.Response.fromStream(
+          await client.send(request),
+        );
+
+        // When its abort trigger completes after the entire body was consumed.
+        abortTrigger.complete();
+        await abortTrigger.future;
+
+        // Then the completed response remains intact and Fetch is not aborted.
+        expect(response.body, 'completed');
+        expect(signal.aborted, isFalse);
+      },
+    );
+
+    for (final nullBody in [true, false]) {
+      test(
+        'should complete a ${nullBody ? 'null' : 'empty'} body without aborting Fetch',
+        () async {
+          // Given a real browser response with no body or an empty body stream.
+          fetchResponse = web.Response(
+            nullBody ? null : ''.toJS,
+            web.ResponseInit(status: 200),
+          );
+
+          // When its response is fully consumed.
+          final response = await client.get(base.resolve('login'));
+
+          // Then the empty payload completes normally without aborting Fetch.
+          expect(response.bodyBytes, isEmpty);
+          expect(response.statusCode, 200);
+          expect(signal.aborted, isFalse);
+        },
+      );
+    }
+
+    test(
+      'should abort an active response when its abort trigger completes',
+      () async {
+        // Given an abortable request with an unfinished real browser body.
+        final abortTrigger = Completer<void>();
+        late web.ReadableStreamDefaultController controller;
+        fetchResponse = web.Response(
+          web.ReadableStream(
+            {
+                  'start': ((web.ReadableStreamDefaultController value) {
+                    controller = value;
+                    value.enqueue(Uint8List.fromList([1, 2, 3]).toJS);
+                  }).toJS,
+                }.jsify()!
+                as JSObject,
+          ),
+        );
+        onAbort = () =>
+            controller.error(web.DOMException('Aborted', 'AbortError'));
+        final response = await client.send(
+          http.AbortableRequest(
+            'GET',
+            base.resolve('login'),
+            abortTrigger: abortTrigger.future,
+          ),
+        );
+        final body = StreamIterator<List<int>>(response.stream);
+        addTearDown(body.cancel);
+        expect(await body.moveNext(), isTrue);
+        expect(body.current, [1, 2, 3]);
+        expect(signal.aborted, isFalse);
+        final interrupted = expectLater(
+          body.moveNext(),
+          throwsA(isA<http.ClientException>()),
+        );
+
+        // When the abort trigger completes while the next body read is pending.
+        abortTrigger.complete();
+        await interrupted;
+
+        // Then Fetch is aborted and the unfinished body fails rather than completing.
+        expect(signal.aborted, isTrue);
+      },
+    );
+
+    test('should abort Fetch and cancel its reader on early stream cancellation', () async {
+      // Given an unfinished browser body with an observable cancellation hook.
+      var cancellations = 0;
+      fetchResponse = web.Response(
+        web.ReadableStream(
+          {
+                'start': ((web.ReadableStreamDefaultController controller) {
+                  controller.enqueue(Uint8List.fromList([1, 2, 3]).toJS);
+                }).toJS,
+                'cancel': ((JSAny? reason) {
+                  cancellations++;
+                }).toJS,
+              }.jsify()!
+              as JSObject,
+        ),
+      );
+      final response = await client.send(
+        http.Request('GET', base.resolve('login')),
+      );
+      final body = StreamIterator<List<int>>(response.stream);
+      addTearDown(body.cancel);
+      expect(await body.moveNext(), isTrue);
+      expect(body.current, [1, 2, 3]);
+      expect(signal.aborted, isFalse);
+
+      // When the consumer cancels before the browser body reaches EOF.
+      await body.cancel();
+
+      // Then the active Fetch and its reader are both cancelled.
+      expect(signal.aborted, isTrue);
+      expect(cancellations, 1);
+    });
+
+    test('should abort an outstanding response when the client closes', () async {
+      // Given a response whose browser body remains unfinished after one chunk.
+      var cancellations = 0;
+      fetchResponse = web.Response(
+        web.ReadableStream(
+          {
+                'start': ((web.ReadableStreamDefaultController controller) {
+                  controller.enqueue(Uint8List.fromList([1, 2, 3]).toJS);
+                }).toJS,
+                'cancel': ((JSAny? reason) {
+                  cancellations++;
+                }).toJS,
+              }.jsify()!
+              as JSObject,
+        ),
+      );
+      final response = await client.send(
+        http.Request('GET', base.resolve('login')),
+      );
+      final body = StreamIterator<List<int>>(response.stream);
+      addTearDown(body.cancel);
+      expect(await body.moveNext(), isTrue);
+      expect(body.current, [1, 2, 3]);
+      expect(signal.aborted, isFalse);
+
+      // When the client closes with that response still outstanding.
+      client.close();
+
+      // Then the pending Fetch is aborted and its reader can still be cancelled.
+      expect(signal.aborted, isTrue);
+      await body.cancel();
+      expect(cancellations, 1);
+    });
+  });
+
   test('provider-capability browser transfer omits application credentials, referrer and redirects', () async {
     // Given the actual browser transfer transport and an observed synthetic Fetch response.
     final original = _fetch;

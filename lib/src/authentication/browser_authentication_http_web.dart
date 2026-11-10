@@ -57,7 +57,11 @@ final class _BrowserAuthenticationHttpClient extends http.BaseClient {
     final abort = web.AbortController();
     _pending.add(abort);
     if (request case http.Abortable(:final abortTrigger?)) {
-      unawaited(abortTrigger.then<void>((_) => abort.abort()));
+      unawaited(
+        abortTrigger.then<void>((_) {
+          if (_pending.contains(abort)) abort.abort();
+        }),
+      );
     }
     try {
       final body = await request.finalize().toBytes();
@@ -102,23 +106,32 @@ final class _BrowserAuthenticationHttpClient extends http.BaseClient {
     web.AbortController abort,
   ) async* {
     web.ReadableStreamDefaultReader? reader;
+    var completed = false;
     try {
       reader = response.body?.getReader() as web.ReadableStreamDefaultReader?;
-      if (reader == null) return;
+      if (reader == null) {
+        completed = true;
+        return;
+      }
       while (true) {
         final chunk = await reader.read().toDart;
-        if (chunk.done) break;
+        if (chunk.done) {
+          completed = true;
+          break;
+        }
         yield (chunk.value as JSUint8Array).toDart;
       }
     } catch (_) {
       throw http.ClientException('Authentication response failed');
     } finally {
       _pending.remove(abort);
-      abort.abort();
-      try {
-        await reader?.cancel().toDart;
-      } catch (_) {
-        // Aborted/error streams may reject cancellation; the request is retired.
+      if (!completed) {
+        abort.abort();
+        try {
+          await reader?.cancel().toDart;
+        } catch (_) {
+          // Aborted/error streams may reject cancellation; the request is retired.
+        }
       }
     }
   }
