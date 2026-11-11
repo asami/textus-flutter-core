@@ -102,3 +102,18 @@ policy results/prerequisites for Framework presentation; servers retain authorit
 Stronger login methods consume actual User Account/IdP capability. A setting
 does not invent a hardware authenticator, HSM or recovery service; unavailable
 strengthening must not silently degrade to a weaker promised mode.
+
+## Shared runtime-mode consumption — 2026-11-02
+
+Consume the [common mode policy](https://github.com/asami/goldenport-cncf/blob/main/docs/spec/runtime-mode-security-defaults.md) through the existing configuration/
+authentication adapters. Core owns native/Web endpoint, credential and pending
+delivery scoping. Apps receive safe account/environment state, never a credential
+or a client-controlled server authorization mode. Flutter debug/release is a
+separate build choice.
+
+Dev/test can use explicitly configured fixture adapters and synthetic resources.
+Demo/production use the ordinary account/session contract; simulated identity
+must not appear provider-verified. Reject missing mandatory bindings without
+silent auto-login or endpoint fallback. Account/environment changes preserve
+unsaved originals and prevent queued work from being submitted to another owner
+or destination. Diagnostic detail never permits credential/media disclosure.

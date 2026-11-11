@@ -1,5 +1,14 @@
 # Core Phase index
 
+## On-device voice text and multimedia demo — selected 2026-11-08
+
+[TFC-INPUT01..05](voice-text-and-multimedia-demo-plan.md) supplies actual
+Android/iPhone speech, Japanese native cleanup and required video/media lifecycle
+for App Phase 7.2. The demo explains offline prepared-model cleanup and avoided
+commercial AI API charges. Prepare capabilities alongside App 7.1; preserve
+current work and closed Phases. All items are planned/open, not actual support
+or execution claims. Framework owns dialog/fields and App owns annotation meaning.
+
 [Phase 4 — Optional Firebase client providers](phase-4.md) is planned for later delivery. Progress is recorded in the [Phase 4 checklist](phase-4-checklist.md).
 
 ## Planned media input/capability integration — 2026-10-31
