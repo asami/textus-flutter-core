@@ -19,6 +19,7 @@ dependencies:
   crypto: ^3.0.7
   image: 4.3.0
   image_picker: ^1.2.4
+  video_player: ^2.14.1
   google_mlkit_text_recognition: ^0.17.1
   google_mlkit_barcode_scanning: ^0.16.1
   textus_flutter_core_android_audio:
@@ -31,6 +32,7 @@ dependencies:
     path: packages/textus_flutter_core_native_authentication
 
 dev_dependencies:
+  video_player_platform_interface: ^6.9.0
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0

@@ -10,6 +10,7 @@ import 'image_picker_camera_provider.dart';
 import 'image_recognition_service.dart';
 import 'mlkit_image_recognition_provider.dart';
 import 'photo_capture.dart';
+import 'video_capture_recovery.dart';
 import 'recognition_configuration.dart';
 import 'recognition_operation_context.dart';
 import 'recognition_report.dart';
@@ -96,6 +97,7 @@ final class PhotoCaptureService {
   Future<CaptureMaterialReference?> _importOriginal(
     Future<CapturedPhoto?> Function() acquire,
   ) async {
+    await VideoCaptureRecovery.requireNoPending(_store);
     final photo = await acquire();
     if (photo == null) {
       return null;
