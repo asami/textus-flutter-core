@@ -1,8 +1,22 @@
 # Shared media input/capability integration
 
-Status: PLANNED; execution not started
+Status: IN_PROGRESS; implementation started, actual platform acceptance open
 Decision date: 2026-10-31
 Consumer: App Phase 7 ESA7-08; Application Framework media action facade
+
+2026-11-07: the user explicitly prioritized the non-server remainder of App
+Phase 7. Implement the shared adapters, browser durable media/queue storage and
+controlled platform/delivery qualification now; live server/device acceptance
+remains later. Reuse existing submission transitions and TKL contracts, with
+platform-specific persistence rather than a second Web delivery algorithm.
+This instruction supersedes the earlier implementation-order gate below.
+
+Implementation update: shared explicit capability/acquisition service, browser
+file and native image-picker adapters, owned IndexedDB originals/documents/queue,
+shared existing queue transitions, portable foreground driver and session-bound
+delivery ports are implemented. Controlled host/Chrome checks and integrated
+review qualify the client boundary; actual platform/transfer acceptance below
+remains open. See [Nov 7 journal](../journal/2026/11/2026-11-07-shared-browser-media-and-queue.md).
 
 Implement the [media contract](../spec/media-input-capabilities.md). Preserve
 existing closed phases and the accepted capture/submission interfaces. This

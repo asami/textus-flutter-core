@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'submission_authentication.dart';
 import 'submission_json.dart' as j;
 
 /// Borrowed account-specific credential port, never closed by an adapter.
@@ -12,6 +13,16 @@ abstract interface class SubmissionCredentialProvider {
   /// null when explicit authorization is required. Provider failures become a
   /// safe retryable configuration failure; malformed tokens are rejected.
   Future<String?> bearerToken(String connectionId);
+}
+
+/// Optional credential port fenced by exact local participant and target intent.
+/// Implementing this port alone does not establish authentication or server trust.
+abstract interface class AuthenticatedSubmissionCredentialProvider
+    implements SubmissionCredentialProvider {
+  Future<String?> bearerTokenFor({
+    required SubmissionAuthenticationBinding binding,
+    required HttpSubmissionConnection connection,
+  });
 }
 
 /// Immutable safe Google Drive target definition, without credentials or IO.

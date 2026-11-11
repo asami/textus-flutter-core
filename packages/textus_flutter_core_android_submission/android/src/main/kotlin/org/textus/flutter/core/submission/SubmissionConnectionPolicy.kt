@@ -132,14 +132,41 @@ internal object SubmissionConnectionPolicy {
     fun selection(value: Any?): Map<String, Any?> {
         val supplied = objectValue(value)
         val version = integer(supplied["version"])
-        if (version != 1L && version != 2L) invalid()
+        if (version != 1L && version != 2L && version != 3L) invalid()
         val keys = setOf("version", "storageConnectionId", "transportConnectionId") +
-            if (version == 2L) setOf("referenceAccessBindings") else emptySet()
+            (if (version >= 2L) setOf("referenceAccessBindings") else emptySet()) +
+            (if (version == 3L) setOf("participantAuthentication") else emptySet())
         val map = exact(supplied, keys)
         nullableId(map["storageConnectionId"])
         nullableId(map["transportConnectionId"])
-        if (version == 2L) bindings(map["referenceAccessBindings"])
-        return map
+        val detached = if (version >= 2L) map +
+            ("referenceAccessBindings" to bindings(map["referenceAccessBindings"])) else map
+        return if (version == 3L) detached +
+            ("participantAuthentication" to participantDeclaration(map["participantAuthentication"])) else detached
+    }
+
+    /** Structural storage admission only; common Dart owns canonical authority semantics. */
+    fun participantDeclaration(value: Any?): Map<String, Any?> {
+        val map = exact(value, setOf("version", "authorityProfileId", "authorityBaseUri", "trustedConnectionIds"))
+        if (integer(map["version"]) != 1L) invalid()
+        if (!Regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$").matches(string(map["authorityProfileId"]))) invalid()
+        val base = string(map["authorityBaseUri"])
+        val uri = try { URI(base) } catch (_: Exception) { invalid() }
+        if (base.isBlank() || base.toByteArray(Charsets.UTF_8).size > 65536 ||
+            base.any { it == '\\' || it.isISOControl() } || uri.scheme != "https" ||
+            uri.rawAuthority.isNullOrEmpty() || uri.rawAuthority.contains('@') ||
+            uri.rawQuery != null || uri.rawFragment != null ||
+            uri.rawPath.isNullOrEmpty() || !uri.rawPath.startsWith('/') || !uri.rawPath.endsWith('/')) invalid()
+        val ids = (map["trustedConnectionIds"] as? List<*> ?: invalid()).map { safeId(it) }
+        if (ids.isEmpty() || ids.size > 128 || ids.toSet().size != ids.size) invalid()
+        return map + ("trustedConnectionIds" to ids)
+    }
+
+    /** Exact old selection versions carry no participant declaration or implicit adoption. */
+    fun participantAuthentication(value: Map<String, Any?>): Map<String, Any?>? {
+        val validated = selection(value)
+        return if (integer(validated["version"]) == 3L)
+            participantDeclaration(validated["participantAuthentication"]) else null
     }
 
     /** Deeply detached exact ids; empty is explicit revocation, absent unknown. */
@@ -184,28 +211,54 @@ internal object SubmissionConnectionPolicy {
                 throw SubmissionConfigurationFailure("connectionMissing")
             }
         }
+        val participant = participantAuthentication(selected)
+        if (participant != null) {
+            val trusted = participant["trustedConnectionIds"] as List<*>
+            for (id in trusted) {
+                val connection = definitions.firstOrNull { it["id"] == id && it["type"] == "http" }
+                    ?: throw SubmissionConfigurationFailure("connectionMissing")
+                if (connection["requiresBearerToken"] != true) invalid()
+            }
+            val transport = selected["transportConnectionId"]
+            if (transport != null && transport !in trusted) invalid()
+        }
     }
 
-    /** Canonical v2 selection changes preserve every existing explicit binding. */
+    /** Selection changes preserve explicit bindings and the exact participant mode. */
     fun withSelection(definitions: List<Map<String, Any?>>, current: Map<String, Any?>,
         storage: String?, transport: String?): Map<String, Any?> {
         validateSelection(definitions, current)
-        val changed = mapOf("version" to 2, "storageConnectionId" to storage,
+        val changed = selection(current) + mapOf("version" to if (integer(current["version"]) == 3L) 3 else 2,
+            "storageConnectionId" to storage,
             "transportConnectionId" to transport, "referenceAccessBindings" to referenceAccessBindings(current))
         validateSelection(definitions, changed)
         return changed
     }
 
-    /** Canonical v2 one-key replace; validates the entire map before a write. */
+    /** One-key replace preserves participant mode and validates the whole map. */
     fun setReferenceAccess(definitions: List<Map<String, Any?>>, current: Map<String, Any?>,
         transportConnectionId: String, storageConnectionIds: Any?): Map<String, Any?> {
         validateSelection(definitions, current)
         val transport = safeId(transportConnectionId)
         val access = bindings(mapOf(transport to storageConnectionIds))[transport]!!
-        val changed = mapOf("version" to 2,
+        val changed = selection(current) + mapOf("version" to if (integer(current["version"]) == 3L) 3 else 2,
             "storageConnectionId" to current["storageConnectionId"],
             "transportConnectionId" to current["transportConnectionId"],
             "referenceAccessBindings" to (referenceAccessBindings(current) + (transport to access)))
+        validateSelection(definitions, changed)
+        return changed
+    }
+
+    /** Null explicitly clears only operator intent, using the original v2 shape. */
+    fun setParticipantAuthentication(definitions: List<Map<String, Any?>>, current: Map<String, Any?>,
+        configuration: Any?): Map<String, Any?> {
+        validateSelection(definitions, current)
+        val participant = if (configuration == null) null else participantDeclaration(configuration)
+        val changed = mapOf("version" to if (participant == null) 2 else 3,
+            "storageConnectionId" to current["storageConnectionId"],
+            "transportConnectionId" to current["transportConnectionId"],
+            "referenceAccessBindings" to referenceAccessBindings(current)) +
+            (if (participant == null) emptyMap() else mapOf("participantAuthentication" to participant))
         validateSelection(definitions, changed)
         return changed
     }

@@ -12,7 +12,7 @@ import 'pcm_wave_audio.dart';
 /// An injectable channel supports protocol specifications; channel mocks do not
 /// establish Android microphone, model or hardware availability.
 final class AndroidAudioProvider
-    implements AudioRuntimeProvider, AudioTranscriptionProvider {
+    implements AudioRuntimeProvider, TransientAudioTranscriptionProvider {
   /// Creates an inert adapter with a unique logical native session.
   AndroidAudioProvider({MethodChannel? channel, bool? isAndroid})
     : _channel =
@@ -185,12 +185,24 @@ final class AndroidAudioProvider
   }
 
   @override
-  Future<AudioProviderTranscript> transcribe(AudioTranscriptionInput input) {
-    final bytes = PcmWaveAudio.parse(input.bytes).bytes;
+  Future<AudioProviderTranscript> transcribe(AudioTranscriptionInput input) =>
+      transcribeCaptured(input.bytes, locale: input.locale);
+
+  @override
+  Future<AudioProviderTranscript> transcribeCaptured(
+    Uint8List input, {
+    String locale = 'ja-JP',
+  }) {
+    AudioProviderAvailability(
+      providerId: id,
+      locale: locale,
+      state: AudioProviderState.unavailable,
+    );
+    final bytes = PcmWaveAudio.parse(input).bytes;
     return _normal(AudioCaptureState.transcribing, () async {
       _requireAndroid();
       final map = _map(
-        await _call('transcribe', {'bytes': bytes, 'locale': input.locale}),
+        await _call('transcribe', {'bytes': bytes, 'locale': locale}),
         {'text', 'extensions'},
       );
       if (map['text'] is! String ||

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'submission_configuration.dart';
 import 'submission_connections.dart';
 import 'submission_json.dart' as j;
+import 'submission_participant_authentication_configuration.dart';
 
 /// Owned Android secure configuration facade and borrowed credential port.
 ///
@@ -15,7 +16,9 @@ import 'submission_json.dart' as j;
 /// Close joins accepted calls, rejects their late results and closes only this
 /// engine's configuration handle; it never cancels durable work.
 final class AndroidSubmissionConfigurationStore
-    implements SubmissionConfigurationStore, SubmissionCredentialProvider {
+    implements
+        SubmissionParticipantConfigurationStore,
+        SubmissionCredentialProvider {
   /// Creates a facade without IO; unsupported platforms fail before channel IO.
   AndroidSubmissionConfigurationStore({MethodChannel? channel})
     : _channel =
@@ -85,8 +88,22 @@ final class AndroidSubmissionConfigurationStore
   Future<SubmissionConfigurationSnapshot> snapshot() => _call(
     'snapshot',
     {},
-    (value) => SubmissionConfigurationSnapshot.fromJson(j.object(value)),
+    (value) {
+      try {
+        return SubmissionConfigurationSnapshot.fromJson(j.object(value));
+      } on FormatException {
+        throw SubmissionConfigurationException.safe('configurationInvalid');
+      }
+    },
   );
+
+  /// Replaces only explicit participant intent; null restores ordinary v2 mode.
+  @override
+  Future<void> setParticipantAuthentication(
+    SubmissionParticipantAuthenticationConfiguration? configuration,
+  ) => _call('setParticipantAuthentication', {
+    'configuration': configuration?.toJson(),
+  }, _nothing);
 
   @override
   Future<void> putDrive(DriveSubmissionConnection connection) {

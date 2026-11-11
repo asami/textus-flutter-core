@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
 import 'submission_adapters.dart';
+import 'submission_authentication.dart';
 import 'submission_connections.dart';
 import 'submission_http.dart';
 import 'submission_json.dart' as j;
@@ -41,6 +42,7 @@ final class TklMaterialDeliveryHttpClient
     required this.connection,
     required http.Client client,
     required SubmissionCredentialProvider credentials,
+    this.authenticationBinding,
     this.operationTimeout = const Duration(seconds: 45),
     this.isRunCurrent,
     this.cancellation,
@@ -57,6 +59,9 @@ final class TklMaterialDeliveryHttpClient
   }
 
   final HttpSubmissionConnection connection;
+
+  /// Local actor captured by composition; never supplied to TKL as an owner.
+  final SubmissionAuthenticationBinding? authenticationBinding;
   final http.Client _client;
   final SubmissionCredentialProvider _credentials;
   final Duration operationTimeout;
@@ -394,7 +399,11 @@ final class TklMaterialDeliveryHttpClient
           .resolve(operation)
           .replace(queryParameters: query);
       final headers = <String, String>{'Accept': 'application/json'};
-      final token = await lifetime.token(_credentials, connection.id);
+      final token = await lifetime.authenticatedToken(
+        _credentials,
+        connection: connection,
+        binding: authenticationBinding,
+      );
       headers['Authorization'] = 'Bearer $token';
       List<int>? bytes;
       if (multipart != null) {

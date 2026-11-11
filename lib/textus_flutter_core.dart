@@ -6,13 +6,19 @@
 /// unsupported platforms expose the same API and throw UnsupportedError.
 library;
 
+export 'src/authentication/user_account_authentication.dart';
+export 'src/authentication/user_account_http_authentication_backend.dart';
+
 // Original audio runtime, strict PCM and append-only transcript contracts.
 export 'src/audio/audio_capture.dart';
 export 'src/audio/audio_capture_service.dart';
 export 'src/audio/audio_transcript.dart';
 export 'src/audio/audio_transcript_codec.dart';
 export 'src/audio/android_audio_provider.dart';
+export 'src/audio/ios_audio_provider.dart';
 export 'src/audio/pcm_wave_audio.dart';
+export 'src/audio/voice_text_input.dart';
+export 'src/audio/voice_text_cleanup.dart';
 
 // Domain-independent capture values and contracts.
 export 'src/capture/capture_identifiers.dart';
@@ -57,12 +63,16 @@ export 'src/display/display_session.dart';
 export 'src/repository/capture_repository.dart';
 export 'src/repository/local_capture_store.dart';
 export 'src/repository/file_capture_store.dart';
+export 'src/repository/browser_capture_store.dart';
+export 'src/capture/media_input.dart';
+export 'src/capture/platform_media_input.dart';
 
 // Source-authoritative local lexical retrieval and a durable derived index.
 export 'src/retrieval/material_retrieval.dart';
 export 'src/retrieval/local_material_retrieval_service.dart';
 
 // Durable explicit submission intent, resumable checkpoints and borrowed ports.
+export 'src/submission/submission_authentication.dart';
 export 'src/submission/submission_request.dart';
 export 'src/submission/registered_material_submission.dart';
 export 'src/submission/registered_material_submission_codec.dart';
@@ -82,8 +92,13 @@ export 'src/submission/submission_connections.dart';
 export 'src/submission/drive_submission_storage_adapter.dart';
 export 'src/submission/http_submission_transport.dart';
 export 'src/submission/submission_configuration.dart';
+export 'src/submission/submission_participant_authentication_configuration.dart';
 export 'src/submission/submission_reference_access.dart';
 export 'src/submission/android_submission_configuration.dart';
+export 'src/submission/ios_submission_configuration.dart';
+export 'src/submission/ios_submission_foreground_scheduler.dart';
+export 'src/submission/foreground_submission_scheduler.dart';
+export 'src/submission/ios_submission_resources.dart';
 export 'src/submission/submission_run_lifetime.dart';
 export 'src/submission/submission_background_resources.dart';
 export 'src/submission/submission_background_runner.dart';

@@ -189,12 +189,14 @@ internal class SecureSubmissionStore(private val context: Context) {
 
     fun snapshot(): Map<String, Any?> = transaction { _, rows, selection ->
         val definitions = definitions(rows)
-        mapOf("version" to 2,
+        val participant = SubmissionConnectionPolicy.participantAuthentication(selection)
+        mapOf("version" to if (participant == null) 2 else 3,
             "driveConnections" to definitions.filter { it["type"] == "googleDrive" },
             "httpConnections" to definitions.filter { it["type"] == "http" },
             "selectedStorageConnectionId" to selection["storageConnectionId"],
             "selectedTransportConnectionId" to selection["transportConnectionId"],
-            "referenceAccessBindings" to SubmissionConnectionPolicy.referenceAccessBindings(selection))
+            "referenceAccessBindings" to SubmissionConnectionPolicy.referenceAccessBindings(selection)) +
+            (if (participant == null) emptyMap() else mapOf("participantAuthentication" to participant))
     }
 
     fun put(value: Any?, type: String) {
@@ -228,6 +230,15 @@ internal class SecureSubmissionStore(private val context: Context) {
         transaction { db, rows, current ->
             val selected = SubmissionConnectionPolicy.setReferenceAccess(definitions(rows), current,
                 transportConnectionId, storageConnectionIds)
+            db.execSQL("INSERT OR REPLACE INTO selection(id,sealed) VALUES(1,?)",
+                arrayOf(seal(db, selected, "selection")))
+        }
+    }
+
+    /** Replaces only public intent in the existing encrypted selection transaction. */
+    fun setParticipantAuthentication(configuration: Any?) {
+        transaction { db, rows, current ->
+            val selected = SubmissionConnectionPolicy.setParticipantAuthentication(definitions(rows), current, configuration)
             db.execSQL("INSERT OR REPLACE INTO selection(id,sealed) VALUES(1,?)",
                 arrayOf(seal(db, selected, "selection")))
         }

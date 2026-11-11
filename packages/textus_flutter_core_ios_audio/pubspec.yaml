@@ -1,0 +1,19 @@
+name: textus_flutter_core_ios_audio
+description: iOS original PCM audio and saved-input on-device speech registration for Textus Core.
+version: 0.0.1
+publish_to: none
+repository: https://github.com/asami/textus-flutter-core
+
+environment:
+  sdk: ^3.13.3
+  flutter: ">=3.47.4"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: TextusFlutterCoreIosAudioPlugin

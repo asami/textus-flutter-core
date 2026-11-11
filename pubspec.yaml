@@ -23,8 +23,12 @@ dependencies:
   google_mlkit_barcode_scanning: ^0.16.1
   textus_flutter_core_android_audio:
     path: packages/textus_flutter_core_android_audio
+  textus_flutter_core_ios_audio:
+    path: packages/textus_flutter_core_ios_audio
   textus_flutter_core_android_submission:
     path: packages/textus_flutter_core_android_submission
+  textus_flutter_core_native_authentication:
+    path: packages/textus_flutter_core_native_authentication
 
 dev_dependencies:
   flutter_test:

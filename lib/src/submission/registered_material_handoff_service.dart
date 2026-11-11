@@ -4,10 +4,12 @@ import 'dart:math';
 import 'registered_material_handoff_store.dart';
 import 'registered_material_submission.dart';
 import 'submission_adapters.dart';
+import 'submission_authentication.dart';
 import 'submission_connections.dart';
 import 'submission_json.dart' as j;
 import 'submission_queue_store.dart';
 import 'submission_record.dart';
+import 'studio_submission_failure.dart';
 import 'tkl_material_delivery.dart';
 
 enum RegisteredMaterialHandoffRunOutcome {
@@ -37,6 +39,8 @@ final class RegisteredMaterialHandoffService {
     required RegisteredMaterialHandoffStore store,
     required Map<String, RegisteredMaterialSubmissionTransport> transports,
     required SubmissionWakeScheduler scheduler,
+    this.requiresAuthentication = false,
+    this._authenticationContext,
     DateTime Function()? now,
     this.leaseDuration = const Duration(minutes: 5),
     this.operationTimeout = const Duration(minutes: 1),
@@ -57,6 +61,10 @@ final class RegisteredMaterialHandoffService {
   }
 
   final SubmissionQueueStore _queue;
+  final SubmissionAuthenticationContext? _authenticationContext;
+
+  /// Explicit participant composition gate, never a server authorization grant.
+  final bool requiresAuthentication;
   final RegisteredMaterialHandoffStore _store;
   final Map<String, RegisteredMaterialSubmissionTransport> _transports;
   final SubmissionWakeScheduler _scheduler;
@@ -177,8 +185,30 @@ final class RegisteredMaterialHandoffService {
         outcome: _current(isRunCurrent) ? RegisteredMaterialHandoffRunOutcome.noWork
             : RegisteredMaterialHandoffRunOutcome.cancelled);
     }
+    var runPredicate = isRunCurrent;
     try {
-      if (!_current(isRunCurrent)) return await _finishUnknown(claim, 'runRetired');
+      if (!_current(runPredicate)) return await _finishUnknown(claim, 'runRetired');
+      final binding = claim.sourceRequest.authenticationBinding;
+      final context = _authenticationContext;
+      if (requiresAuthentication || binding != null || context != null) {
+        if (binding == null || context == null || context.binding != binding ||
+            !context.isCurrent) {
+          final saved = await _store.finishHandoff(id: claim.id,
+            leaseToken: claim.leaseToken!, now: _time(),
+            state: RegisteredMaterialHandoffState.failed,
+            failure: RegisteredMaterialHandoffFailure(
+              kind: RegisteredMaterialHandoffFailureKind.configuration,
+              code: 'authenticationRequired',
+              message: 'Sign in to the account bound to this submission.',
+            ));
+          return RegisteredMaterialHandoffRunResult(
+            outcome: RegisteredMaterialHandoffRunOutcome.failed, record: saved);
+        }
+        final callerPredicate = runPredicate;
+        bool boundRunCurrent() => (callerPredicate?.call() ?? true) &&
+            context.binding == binding && context.isCurrent;
+        runPredicate = boundRunCurrent;
+      }
       final transport = _transports[claim.target.id];
       if (transport == null || !sameRegisteredMaterialTarget(transport.connection, claim.target)) {
         final saved = await _store.finishHandoff(id: claim.id,
@@ -191,7 +221,7 @@ final class RegisteredMaterialHandoffService {
         return RegisteredMaterialHandoffRunResult(
           outcome: RegisteredMaterialHandoffRunOutcome.failed, record: saved);
       }
-      if (!_current(isRunCurrent)) return await _finishUnknown(claim, 'runRetired');
+      if (!_current(runPredicate)) return await _finishUnknown(claim, 'runRetired');
       SubmissionAcknowledgement acknowledgement;
       try {
         acknowledgement = await Future.any<SubmissionAcknowledgement>([
@@ -200,9 +230,13 @@ final class RegisteredMaterialHandoffService {
           _retired.future.then<SubmissionAcknowledgement>((_) => throw const _HandoffRetired()),
         ]);
       } on SubmissionAdapterException catch (error) {
-        if (!_current(isRunCurrent) ||
-            error.transportFailureOutcome == SubmissionTransportFailureOutcome.unknown) {
+        if (!_current(runPredicate)) {
           return await _finishUnknown(claim, 'acceptanceUnknown');
+        }
+        final studioCode = isStudioSubmissionFailureCode(error.code)
+            ? error.code : null;
+        if (error.transportFailureOutcome == SubmissionTransportFailureOutcome.unknown) {
+          return await _finishUnknown(claim, studioCode ?? 'acceptanceUnknown');
         }
         final notSent = error.transportFailureOutcome == SubmissionTransportFailureOutcome.notSent;
         final saved = await _store.finishHandoff(id: claim.id,
@@ -210,7 +244,7 @@ final class RegisteredMaterialHandoffService {
           failure: RegisteredMaterialHandoffFailure(
             kind: notSent ? RegisteredMaterialHandoffFailureKind.notSent
                 : RegisteredMaterialHandoffFailureKind.rejected,
-            code: notSent ? 'handoffNotSent' : 'handoffRejected',
+            code: notSent ? 'handoffNotSent' : studioCode ?? 'handoffRejected',
             message: notSent ? 'The Studio handoff was not sent.' : 'Studio refused this handoff.',
           ));
         return RegisteredMaterialHandoffRunResult(
@@ -218,18 +252,19 @@ final class RegisteredMaterialHandoffService {
       } catch (_) {
         return await _finishUnknown(claim, 'acceptanceUnknown');
       }
-      if (!_current(isRunCurrent)) return await _finishUnknown(claim, 'runRetired');
+      if (!_current(runPredicate)) return await _finishUnknown(claim, 'runRetired');
       if (acknowledgement.requestId != claim.sourceRequest.id ||
           acknowledgement.subjectId != claim.sourceRequest.subjectId) {
         return await _finishUnknown(claim, 'acknowledgementMismatch');
       }
       // Keep the durable ACK save outside the transport-failure catch. Failure
       // propagates without rewriting the existing sending checkpoint.
+      if (!_current(runPredicate)) return await _finishUnknown(claim, 'runRetired');
       final saved = await _store.finishHandoff(id: claim.id,
         leaseToken: claim.leaseToken!, now: _time(),
         state: RegisteredMaterialHandoffState.accepted, acknowledgement: acknowledgement);
       return RegisteredMaterialHandoffRunResult(
-        outcome: _current(isRunCurrent) ? RegisteredMaterialHandoffRunOutcome.accepted
+        outcome: _current(runPredicate) ? RegisteredMaterialHandoffRunOutcome.accepted
             : RegisteredMaterialHandoffRunOutcome.cancelled,
         record: saved);
     } on RegisteredMaterialHandoffLeaseLostException {

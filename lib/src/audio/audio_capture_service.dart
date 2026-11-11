@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:math';
-import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 
 import '../repository/file_capture_store.dart';
 import '../repository/local_capture_store.dart';
 import 'android_audio_provider.dart';
+import 'ios_audio_provider.dart';
 import 'audio_capture.dart';
 import 'audio_transcript.dart';
 import 'pcm_wave_audio.dart';
@@ -472,10 +474,20 @@ String _reportId() {
 Future<AudioCaptureService> openDefaultAudioCaptureService({
   LocalCaptureStore? store,
 }) async {
-  final provider = AndroidAudioProvider();
+  final AudioRuntimeProvider runtime;
+  final AudioTranscriptionProvider transcription;
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+    final provider = IosAudioProvider();
+    runtime = provider;
+    transcription = provider;
+  } else {
+    final provider = AndroidAudioProvider();
+    runtime = provider;
+    transcription = provider;
+  }
   return AudioCaptureService(
-    runtime: provider,
-    transcription: provider,
+    runtime: runtime,
+    transcription: transcription,
     store: store ?? await openDefaultCaptureStore(),
     ownsProviders: true,
   );

@@ -427,7 +427,7 @@ void main() {
         // When a strict public snapshot decodes the controlled payload.
         await expectLater(
           store.snapshot(),
-          throwsA(_safeFailure('configurationUnavailable')),
+          throwsA(_safeFailure('configurationInvalid')),
         );
         // Then no empty fallback is returned from corruption.
       }
@@ -859,7 +859,7 @@ void main() {
         // When a fresh actual channel read decodes it, then a safe error propagates.
         await expectLater(
           store.snapshot(),
-          throwsA(_safeFailure('configurationUnavailable')),
+          throwsA(_safeFailure('configurationInvalid')),
         );
       }
     });

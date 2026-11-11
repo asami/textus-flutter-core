@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import 'submission_adapters.dart';
+import 'submission_authentication.dart';
 import 'submission_connections.dart';
 import 'submission_record.dart';
 
@@ -158,12 +159,38 @@ final class SubmissionHttpOperation {
   Future<String> token(
     SubmissionCredentialProvider provider,
     String connectionId,
+  ) => _lookupToken(() => provider.bearerToken(connectionId));
+
+  /// Selects the exact local participant/target port before credential IO.
+  Future<String> authenticatedToken(
+    SubmissionCredentialProvider provider, {
+    required HttpSubmissionConnection connection,
+    required SubmissionAuthenticationBinding? binding,
+  }) {
+    check();
+    if (binding != null) {
+      if (!connection.requiresBearerToken ||
+          provider is! AuthenticatedSubmissionCredentialProvider) {
+        throw httpFailure(SubmissionFailureStage.configuration, 'authRequired');
+      }
+      return _lookupToken(
+        () => provider.bearerTokenFor(binding: binding, connection: connection),
+      );
+    }
+    if (provider is AuthenticatedSubmissionCredentialProvider) {
+      throw httpFailure(SubmissionFailureStage.configuration, 'authRequired');
+    }
+    return token(provider, connection.id);
+  }
+
+  Future<String> _lookupToken(
+    Future<String?> Function() lookup,
   ) async {
     check();
     String? token;
     try {
       token = await wait(
-        Future<String?>.sync(() => provider.bearerToken(connectionId)),
+        Future<String?>.sync(lookup),
       );
     } catch (_) {
       check();

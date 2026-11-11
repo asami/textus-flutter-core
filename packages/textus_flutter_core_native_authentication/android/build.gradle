@@ -1,0 +1,45 @@
+group = 'org.textus.flutter.core.authentication'
+version = '0.0.1'
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:9.1.0'
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.0'
+    }
+}
+
+apply plugin: 'com.android.library'
+if (!(providers.gradleProperty('android.builtInKotlin').orNull ?: 'true').toBoolean()) {
+    apply plugin: 'org.jetbrains.kotlin.android'
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+android {
+    namespace = 'org.textus.flutter.core.authentication'
+    compileSdk = 36
+    defaultConfig {
+        minSdk = 26
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}

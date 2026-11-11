@@ -115,6 +115,7 @@ class TextusFlutterCoreAndroidSubmissionPlugin : FlutterPlugin, ActivityAware,
                 "putDrive", "putHttp" -> setOf("connection")
                 "select" -> setOf("storageConnectionId", "transportConnectionId")
                 "setReferenceAccess" -> setOf("transportConnectionId", "storageConnectionIds")
+                "setParticipantAuthentication" -> setOf("configuration")
                 "setHttpBearerToken" -> setOf("connectionId", "token")
                 "authorizeDrive", "authorizationState", "bearerToken" -> setOf("connectionId")
                 "initializeBackground" -> setOf("callbackHandle")
@@ -152,6 +153,7 @@ class TextusFlutterCoreAndroidSubmissionPlugin : FlutterPlugin, ActivityAware,
                             SubmissionConnectionPolicy.nullableId(args["transportConnectionId"])) }; null }
                         "setReferenceAccess" -> { configurationIo { it.setReferenceAccess(
                             SubmissionConnectionPolicy.safeId(args["transportConnectionId"]), args["storageConnectionIds"]) }; null }
+                        "setParticipantAuthentication" -> { configurationIo { it.setParticipantAuthentication(args["configuration"]) }; null }
                         "setHttpBearerToken" -> { configurationIo { it.setHttpToken(SubmissionConnectionPolicy.safeId(args["connectionId"]),
                             SubmissionConnectionPolicy.bearer(args["token"])) }; null }
                         // Explicit foreground entry gets 160 seconds; silent state/token entries retain 20 seconds.
